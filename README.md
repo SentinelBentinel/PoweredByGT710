@@ -1,6 +1,7 @@
 <img src="/assets/cube.png" width=128>
 
-Powered by the raw computational might of a GT 710, though in practice it runs on the CPU and is more of a lightweight graphics experiment than a serious GPU replacement. <img src="/assets/gt710.png" width = 256>
+Powered by the raw computational might of a GT 710, though in practice it runs on the CPU and is more of a lightweight graphics experiment than a serious GPU replacement. 
+<img src="/assets/gt710.png" width = 256>
 
 ## Build from MSYS2 UCRT64
 
