@@ -22,6 +22,8 @@ public:
     Renderer(int width, int height);
     ~Renderer();
 
+    float fov = 90.0f;
+
     bool Initialize();
 
     bool ProcessEvents();

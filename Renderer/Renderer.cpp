@@ -132,9 +132,20 @@ void Renderer::DrawLine(Vector2 start, Vector2 end, Color color)
 
 Vector2 Renderer::ProjectVertex(const Vector3 &position)
 {
+    constexpr float nearPlane = 0.1f;
+
+    if (position.z < nearPlane)
+        return {-1000000.0f, -1000000.0f};
+
+    float focal = (height * 0.5f) / std::tan((fov * 0.5f) * (3.14159265f / 180.0f));
+
+    float x = (position.x * focal) / position.z;
+    float y = (position.y * focal) / position.z;
+
     return {
-        position.x + width * 0.5f,
-        position.y + height * 0.5f};
+        x + width * 0.5f,
+        -y + height * 0.5f
+    };
 }
 
 bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
@@ -142,11 +153,12 @@ bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
     Vector3 edge1 = v1.position - v0.position;
     Vector3 edge2 = v2.position - v0.position;
 
-    Vector3 normal = Vector3::Cross(edge2, edge1);
+    Vector3 normal = Vector3::Cross(edge1, edge2);
 
-    Vector3 cameraDirection = {0, 0, 1};
+    Vector3 centroid = (v0.position + v1.position + v2.position) * (1.0f / 3.0f);
+    Vector3 viewDir = Vector3{ -centroid.x, -centroid.y, -centroid.z };
 
-    return Vector3::Dot(normal, cameraDirection) <= 0.0f;
+    return Vector3::Dot(normal, viewDir) <= 0.0f;
 }
 
 void Renderer::RasterizeTriangle(const Triangle &triangle)
@@ -164,7 +176,7 @@ void Renderer::RasterizeTriangle(const Triangle &triangle)
         p1,
         p2);
 
-    if (area <= 0.0f)
+    if (std::abs(area) < 0.0001f)
         return;
 
     int minX = std::max(0, static_cast<int>(std::floor(std::min({p0.x, p1.x, p2.x}))));
@@ -211,6 +223,13 @@ void Renderer::RenderMesh(const Mesh &mesh)
 
         triangle.transform = mesh.transform;
 
+        Vertex v0 = TransformVertex(triangle.v0, triangle.transform);
+        Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
+        Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
+
+        if (IsBackFace(v0,v1,v2))
+            continue;
+
         if (renderMode == RenderMode::Filled)
         {
             RasterizeTriangle(triangle);
@@ -221,17 +240,9 @@ void Renderer::RenderMesh(const Mesh &mesh)
             Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
             Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
 
-            if (IsBackFace(v0, v1, v2))
-                continue;
-
             Vector2 p0 = ProjectVertex(v0.position);
             Vector2 p1 = ProjectVertex(v1.position);
             Vector2 p2 = ProjectVertex(v2.position);
-
-            float area = EdgeFunc(p0,p1,p2);
-
-            if (area <= 0.0f)
-                continue;
 
             DrawLine(p0, p1, v0.color);
             DrawLine(p1, p2, v1.color);

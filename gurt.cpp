@@ -48,7 +48,7 @@ Mesh cube =
 
         // Transform
         {
-            {0.0f, 0.0f, 0.0f}, // Position
+            {0.0f, 0.0f, 500.0f}, // Position
             {0.0f, 0.0f, 0.0f}, // Rotation (XYZ)
             {1.0f, 1.0f, 1.0f}  // Scale
         }};
@@ -61,6 +61,7 @@ void Update()
 {
     meshes[0].transform.rotation.x += 0.001f;
     meshes[0].transform.rotation.y += 0.001f;
+    meshes[0].transform.position.z = 300;
 }
 
 void Render(Renderer &renderer)
