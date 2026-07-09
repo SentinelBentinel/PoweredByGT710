@@ -5,37 +5,62 @@
 #include <vector>
 #include <iostream>
 
-Mesh square =
+Mesh cube =
     {
         // Vertices
         {
-            {{-100, -100}, {255, 0, 0}},
-            {{100, -100}, {0, 255, 0}},
-            {{100, 100}, {0, 0, 255}},
-            {{-100, 100}, {255, 255, 0}}},
+            {{-100, -100, -100}, {255, 0, 0}},  // 0
+            {{100, -100, -100}, {0, 255, 0}},   // 1
+            {{100, 100, -100}, {0, 0, 255}},    // 2
+            {{-100, 100, -100}, {255, 255, 0}}, // 3
 
-        // Indices
+            {{-100, -100, 100}, {255, 0, 255}}, // 4
+            {{100, -100, 100}, {0, 255, 255}},  // 5
+            {{100, 100, 100}, {255, 255, 255}}, // 6
+            {{-100, 100, 100}, {255, 128, 0}}   // 7
+        },
+
+        // Indices (12 triangles)
         {
-            0, 1, 2,
-            0, 2, 3},
+            // Front (+Z)
+            4, 5, 6,
+            4, 6, 7,
+
+            // Back (-Z)
+            0, 2, 1,
+            0, 3, 2,
+
+            // Left (-X)
+            0, 4, 7,
+            0, 7, 3,
+
+            // Right (+X)
+            1, 2, 6,
+            1, 6, 5,
+
+            // Top (+Y)
+            3, 7, 6,
+            3, 6, 2,
+
+            // Bottom (-Y)
+            0, 1, 5,
+            0, 5, 4},
 
         // Transform
         {
-            {400, 300},
-            0.0f,
-            1.0f}};
+            {0.0f, 0.0f, 0.0f}, // Position
+            {0.0f, 0.0f, 0.0f}, // Rotation (XYZ)
+            {1.0f, 1.0f, 1.0f}  // Scale
+        }};
 
 std::vector<Mesh> meshes =
     {
-        square
-    };
+        cube};
 
 void Update()
 {
-    for (Mesh &mesh : meshes)
-    {
-        mesh.transform.rotation += 0;
-    }
+    meshes[0].transform.rotation.x += 0.001f;
+    meshes[0].transform.rotation.y += 0.001f;
 }
 
 void Render(Renderer &renderer)

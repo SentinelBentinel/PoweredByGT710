@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(SOURCES
   gurt.cpp
   Renderer/Renderer.cpp
+  Math/Matrix4.cpp
 )
 
 add_executable(gurt ${SOURCES})

@@ -6,7 +6,8 @@
 
 Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h) {};
 
-Renderer::~Renderer() {
+Renderer::~Renderer()
+{
     if (texture)
         SDL_DestroyTexture(texture);
     if (renderer)
@@ -16,12 +17,15 @@ Renderer::~Renderer() {
     SDL_Quit();
 }
 
-bool Renderer::Initialize() {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
-        std::cerr << "SDL_Init err: "<< SDL_GetError() << '\n';
+bool Renderer::Initialize()
+{
+    if (!SDL_Init(SDL_INIT_VIDEO))
+    {
+        std::cerr << "SDL_Init err: " << SDL_GetError() << '\n';
         return false;
     }
-    if (!SDL_CreateWindowAndRenderer("PR3TEST", width, height,0,&window,&renderer)) {
+    if (!SDL_CreateWindowAndRenderer("PR3TEST", width, height, 0, &window, &renderer))
+    {
         std::cerr << "Window/Renderer err: " << SDL_GetError() << '\n';
         return false;
     }
@@ -31,10 +35,10 @@ bool Renderer::Initialize() {
         SDL_PIXELFORMAT_RGB24,
         SDL_TEXTUREACCESS_STREAMING,
         width,
-        height
-    );
+        height);
 
-    if (!texture) {
+    if (!texture)
+    {
         std::cerr << "Texture err: " << SDL_GetError() << '\n';
         return false;
     }
@@ -42,52 +46,58 @@ bool Renderer::Initialize() {
     return true;
 }
 
-bool Renderer::ProcessEvents() {
+bool Renderer::ProcessEvents()
+{
     SDL_Event event;
 
-    while (SDL_PollEvent(&event)) {
+    while (SDL_PollEvent(&event))
+    {
         if (event.type == SDL_EVENT_QUIT)
             return false;
     }
     return true;
 }
 
-void Renderer::Clear(Color color) {
+void Renderer::Clear(Color color)
+{
     std::fill(
         framebufer.begin(),
         framebufer.end(),
-        color
-    );
+        color);
 }
 
-void Renderer::Present() {
+void Renderer::Present()
+{
     SDL_UpdateTexture(
         texture,
         nullptr,
         framebufer.data(),
-        width * sizeof(Color)
-    );
+        width * sizeof(Color));
 
     SDL_RenderClear(renderer);
-    SDL_RenderTexture(renderer,texture,nullptr,nullptr);
+    SDL_RenderTexture(renderer, texture, nullptr, nullptr);
     SDL_RenderPresent(renderer);
 }
 
-std::vector<Color>& Renderer::GetFramebuffer() {
+std::vector<Color> &Renderer::GetFramebuffer()
+{
     return framebufer;
 }
 
-void Renderer::SetRenderMode(RenderMode mode) {
+void Renderer::SetRenderMode(RenderMode mode)
+{
     renderMode = mode;
 }
 
-void Renderer::DrawPixel(int x, int y, Color color) {
+void Renderer::DrawPixel(int x, int y, Color color)
+{
     if (x < 0 || x >= width || y < 0 || y >= height)
         return;
     framebufer[y * width + x] = color;
 }
 
-void Renderer::DrawLine(Vector2 start, Vector2 end, Color color) {
+void Renderer::DrawLine(Vector2 start, Vector2 end, Color color)
+{
     float dx = end.x - start.x;
     float dy = end.y - start.y;
 
@@ -98,8 +108,7 @@ void Renderer::DrawLine(Vector2 start, Vector2 end, Color color) {
         DrawPixel(
             static_cast<int>(start.x),
             static_cast<int>(start.y),
-            color
-        );
+            color);
         return;
     }
 
@@ -114,37 +123,63 @@ void Renderer::DrawLine(Vector2 start, Vector2 end, Color color) {
         DrawPixel(
             static_cast<int>(std::round(x)),
             static_cast<int>(std::round(y)),
-            color
-        );
+            color);
 
         x += xIncrement;
         y += yIncrement;
     }
 }
 
-void Renderer::RasterizeTriangle(const Triangle& triangle) {
+Vector2 Renderer::ProjectVertex(const Vector3 &position)
+{
+    return {
+        position.x + width * 0.5f,
+        position.y + height * 0.5f};
+}
+
+bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
+{
+    Vector3 edge1 = v1.position - v0.position;
+    Vector3 edge2 = v2.position - v0.position;
+
+    Vector3 normal = Vector3::Cross(edge2, edge1);
+
+    Vector3 cameraDirection = {0, 0, 1};
+
+    return Vector3::Dot(normal, cameraDirection) <= 0.0f;
+}
+
+void Renderer::RasterizeTriangle(const Triangle &triangle)
+{
     Vertex v0 = TransformVertex(triangle.v0, triangle.transform);
     Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
     Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
 
-    float area = EdgeFunc(
-        v0.position,
-        v1.position,
-        v2.position);
+    Vector2 p0 = ProjectVertex(v0.position);
+    Vector2 p1 = ProjectVertex(v1.position);
+    Vector2 p2 = ProjectVertex(v2.position);
 
-    int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.position.x, v1.position.x, v2.position.x}))));
-    int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({v0.position.x, v1.position.x, v2.position.x}))));
-    int minY = std::max(0, static_cast<int>(std::floor(std::min({v0.position.y, v1.position.y, v2.position.y}))));
-    int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({v0.position.y, v1.position.y, v2.position.y}))));
+    float area = EdgeFunc(
+        p0,
+        p1,
+        p2);
+
+    if (area <= 0.0f)
+        return;
+
+    int minX = std::max(0, static_cast<int>(std::floor(std::min({p0.x, p1.x, p2.x}))));
+    int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({p0.x, p1.x, p2.x}))));
+    int minY = std::max(0, static_cast<int>(std::floor(std::min({p0.y, p1.y, p2.y}))));
+    int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({p0.y, p1.y, p2.y}))));
 
     for (int y = minY; y <= maxY; ++y)
     {
         for (int x = minX; x <= maxX; ++x)
         {
             Vector2 p = {static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f};
-            float w0 = EdgeFunc(v1.position, v2.position, p);
-            float w1 = EdgeFunc(v2.position, v0.position, p);
-            float w2 = EdgeFunc(v0.position, v1.position, p);
+            float w0 = EdgeFunc(p1, p2, p);
+            float w1 = EdgeFunc(p2, p0, p);
+            float w2 = EdgeFunc(p0, p1, p);
 
             if ((area >= 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0))
             {
@@ -164,8 +199,10 @@ void Renderer::RasterizeTriangle(const Triangle& triangle) {
     }
 }
 
-void Renderer::RenderMesh(const Mesh& mesh) {
-    for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+void Renderer::RenderMesh(const Mesh &mesh)
+{
+    for (size_t i = 0; i < mesh.indices.size(); i += 3)
+    {
         Triangle triangle;
 
         triangle.v0 = mesh.vertices[mesh.indices[i]];
@@ -174,44 +211,52 @@ void Renderer::RenderMesh(const Mesh& mesh) {
 
         triangle.transform = mesh.transform;
 
-        if (renderMode == RenderMode::Filled) {
+        if (renderMode == RenderMode::Filled)
+        {
             RasterizeTriangle(triangle);
-        } else {
+        }
+        else
+        {
             Vertex v0 = TransformVertex(triangle.v0, triangle.transform);
             Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
             Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
 
-            DrawLine(v0.position, v1.position, v0.color);
-            DrawLine(v1.position, v2.position, v1.color);
-            DrawLine(v2.position, v0.position, v2.color);
+            if (IsBackFace(v0, v1, v2))
+                continue;
+
+            Vector2 p0 = ProjectVertex(v0.position);
+            Vector2 p1 = ProjectVertex(v1.position);
+            Vector2 p2 = ProjectVertex(v2.position);
+
+            float area = EdgeFunc(p0,p1,p2);
+
+            if (area <= 0.0f)
+                continue;
+
+            DrawLine(p0, p1, v0.color);
+            DrawLine(p1, p2, v1.color);
+            DrawLine(p2, p0, v2.color);
         }
     }
 }
 
-float Renderer::EdgeFunc(const Vector2& v1, const Vector2& v2, const Vector2& p) {
+float Renderer::EdgeFunc(const Vector2 &v1, const Vector2 &v2, const Vector2 &p)
+{
     return (p.x - v1.x) * (v2.y - v1.y) - (p.y - v1.y) * (v2.x - v1.x);
 }
 
-Vertex Renderer::TransformVertex(const Vertex& vertex, const Transform& transform) {
+Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transform)
+{
     Vertex result = vertex;
 
-    // Scale
-    result.position.x *= transform.scale;
-    result.position.y *= transform.scale;
+    Matrix4 model =
+        Matrix4::Translation(transform.position) *
+        Matrix4::RotationZ(transform.rotation.z) *
+        Matrix4::RotationY(transform.rotation.y) *
+        Matrix4::RotationX(transform.rotation.x) *
+        Matrix4::Scale(transform.scale);
 
-    // Rotate
-    float c = std::cos(transform.rotation);
-    float s = std::sin(transform.rotation);
-
-    float x = result.position.x;
-    float y = result.position.y;
-
-    result.position.x = x * c - y * s;
-    result.position.y = x * s + y * c;
-
-    // Translate
-    result.position.x += transform.position.x;
-    result.position.y += transform.position.y;
+    result.position = model.MultiplyPoint(vertex.position);
 
     return result;
 }

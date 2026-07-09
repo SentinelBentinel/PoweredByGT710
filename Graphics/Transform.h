@@ -1,10 +1,10 @@
 #pragma once
 
-#include "../Math/Vector2.h"
+#include "../Math/Vector3.h"
 
 struct Transform
 {
-    Vector2 position;
-    float rotation = 0.0f;
-    float scale = 1.0f;
+    Vector3 position;
+    Vector3 rotation;
+    Vector3 scale = {1,1,1};
 };
