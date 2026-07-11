@@ -31,6 +31,11 @@ struct Vector3
             z - other.z};
     }
 
+    constexpr Vector3 operator-() const
+    {
+        return {-x, -y, -z};
+    }
+
     constexpr Vector3 operator*(float scalar) const
     {
         return {

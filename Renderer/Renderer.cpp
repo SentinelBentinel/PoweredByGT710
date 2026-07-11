@@ -224,6 +224,11 @@ void Renderer::DrawText(int x, int y, const std::string &text, Color color)
     SDL_DestroySurface(surface);
 }
 
+Camera& Renderer::GetCamera()
+{
+    return camera;
+}
+
 Vector2 Renderer::ProjectVertex(const Vector3 &position)
 {
     constexpr float nearPlane = 0.1f;
@@ -338,11 +343,11 @@ void Renderer::RenderMesh(const Mesh &mesh)
         Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
         Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
 
-        // if (IsBackFace(v0, v1, v2))
-        // {
-        //     stats.trianglesCulled++;
-        //     continue;
-        // }
+        if (IsBackFace(v0, v1, v2))
+        {
+            stats.trianglesCulled++;
+            continue;
+        }
 
         if (renderMode == RenderMode::Filled)
         {
@@ -381,7 +386,9 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
         Matrix4::RotationX(transform.rotation.x) *
         Matrix4::Scale(transform.scale);
 
-    result.position = model.MultiplyPoint(vertex.position);
+    Matrix4 mvp = camera.GetViewMatrix() * model;
+
+    result.position = mvp.MultiplyPoint(vertex.position);
 
     return result;
 }

@@ -11,6 +11,7 @@
 #include "../Math/Vector2.h"
 #include "../Math/Vector3.h"
 #include "../Math/Matrix4.h"
+#include "../Core/Camera.h"
 #include "Stats.h"
 
 
@@ -42,6 +43,7 @@ public:
     void DrawText(int x, int y, const std::string& text, Color color);
 
     Stats& GetStats();
+    Camera& GetCamera();
 
     void Present();
 
@@ -55,14 +57,15 @@ private:
     RenderMode renderMode = RenderMode::Filled;
     TTF_Font* font = nullptr;
     Stats stats;
-    std::vector<float> depthBuffer;
-
+    Camera camera;
+    
     int width;
     int height;
-
+    
     SDL_Window *window = nullptr;
     SDL_Renderer *renderer = nullptr;
     SDL_Texture *texture = nullptr;
-
+    
     std::vector<Color> framebufer;
+    std::vector<float> depthBuffer;
 };
