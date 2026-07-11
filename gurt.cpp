@@ -106,7 +106,7 @@ int main()
         return -1;
 
     renderer.SetRenderMode(RenderMode::Wireframe);
-    renderer.GetCamera().position.z = -1500;
+    renderer.GetCamera().position.z = -200;
 
     while (renderer.ProcessEvents())
     {
