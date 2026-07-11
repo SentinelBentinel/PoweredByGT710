@@ -55,6 +55,7 @@ private:
     RenderMode renderMode = RenderMode::Filled;
     TTF_Font* font = nullptr;
     Stats stats;
+    std::vector<float> depthBuffer;
 
     int width;
     int height;

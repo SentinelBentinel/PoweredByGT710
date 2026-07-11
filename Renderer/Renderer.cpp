@@ -3,13 +3,14 @@
 #include <algorithm>
 #include <iostream>
 #include <format>
+#include <limits>
 #include <cmath>
 #include <SDL3_ttf/SDL_ttf.h>
 /*
     Poop
 */
 
-Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h) {};
+Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h), depthBuffer(w * h) {};
 
 Renderer::~Renderer()
 {
@@ -89,6 +90,10 @@ void Renderer::Clear(Color color)
         framebufer.begin(),
         framebufer.end(),
         color);
+    std::fill(
+        depthBuffer.begin(),
+        depthBuffer.end(),
+        std::numeric_limits<float>::infinity());
 
     stats.vertices = 0;
     stats.triangles = 0;
@@ -259,6 +264,10 @@ void Renderer::RasterizeTriangle(const Triangle &triangle)
     Vector2 p1 = ProjectVertex(v1.position);
     Vector2 p2 = ProjectVertex(v2.position);
 
+    float z0 = v0.position.z;
+    float z1 = v1.position.z;
+    float z2 = v2.position.z;
+
     float area = EdgeFunc(
         p0,
         p1,
@@ -287,14 +296,24 @@ void Renderer::RasterizeTriangle(const Triangle &triangle)
                 w1 /= area;
                 w2 /= area;
 
+                float depth = w0 * z0 + w1 * z1 + w2 * z2;
+
                 Color color;
 
                 color.r = static_cast<unsigned char>(w0 * v0.color.r + w1 * v1.color.r + w2 * v2.color.r);
                 color.g = static_cast<unsigned char>(w0 * v0.color.g + w1 * v1.color.g + w2 * v2.color.g);
                 color.b = static_cast<unsigned char>(w0 * v0.color.b + w1 * v1.color.b + w2 * v2.color.b);
 
-                framebufer[y * width + x] = color;
-                stats.pixelsDrawn++;
+                int index = y * width + x;
+                
+                if (depth < depthBuffer[index]) 
+                {
+                    depthBuffer[index] = depth;
+
+                    framebufer[index] = color;
+
+                    stats.pixelsDrawn++;
+                }
             }
         }
     }
@@ -319,11 +338,11 @@ void Renderer::RenderMesh(const Mesh &mesh)
         Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
         Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
 
-        if (IsBackFace(v0, v1, v2))
-        {
-            stats.trianglesCulled++;
-            continue;
-        }
+        // if (IsBackFace(v0, v1, v2))
+        // {
+        //     stats.trianglesCulled++;
+        //     continue;
+        // }
 
         if (renderMode == RenderMode::Filled)
         {

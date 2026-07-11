@@ -50,19 +50,38 @@ Mesh cube =
         // Transform
         {
             {0.0f, 0.0f, 500.0f}, // Position
-            {0.0f, 0.0f, 0.0f}, // Rotation (XYZ)
-            {1.0f, 1.0f, 1.0f}  // Scale
+            {0.0f, 0.0f, 0.0f},   // Rotation (XYZ)
+            {1.0f, 1.0f, 1.0f}    // Scale
         }};
+Mesh frontCube = []()
+{
+    Mesh m = cube;
+    m.transform.position = {0.0f, 0.0f, 600.0f};
+    m.transform.scale = {2.0f,2.0f,2.0f};
+    for (auto &v : m.vertices)
+        v.color = {255, 26, 43};
+    return m;
+}();
+Mesh backCube = []()
+{
+    Mesh mb = cube;
+    mb.transform.position = {0.0f, 0.0f, 500.0f};
+    for (auto &v : mb.vertices)
+        v.color = {12, 255, 87};
+    return mb;
+}();
 
 std::vector<Mesh> meshes =
     {
-        cube};
+        backCube, frontCube};
 
-void Update(const Timer& timer)
+void Update(const Timer &timer)
 {
+    (void)timer;
     meshes[0].transform.rotation.x += 0.001f;
     meshes[0].transform.rotation.y += 0.001f;
-    meshes[0].transform.position.z = 300;
+    meshes[1].transform.rotation.x += 0.001f;
+    meshes[1].transform.rotation.y += 0.001f;
 }
 
 void Render(Renderer &renderer)
@@ -86,7 +105,7 @@ int main()
     if (!renderer.Initialize())
         return -1;
 
-    renderer.SetRenderMode(RenderMode::Filled);
+    renderer.SetRenderMode(RenderMode::Wireframe);
 
     while (renderer.ProcessEvents())
     {
