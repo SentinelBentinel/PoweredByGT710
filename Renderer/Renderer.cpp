@@ -2,7 +2,12 @@
 
 #include <algorithm>
 #include <iostream>
+#include <format>
 #include <cmath>
+#include <SDL3_ttf/SDL_ttf.h>
+/*
+    Poop
+*/
 
 Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h) {};
 
@@ -10,11 +15,19 @@ Renderer::~Renderer()
 {
     if (texture)
         SDL_DestroyTexture(texture);
+    if (font)
+        TTF_CloseFont(font);
     if (renderer)
         SDL_DestroyRenderer(renderer);
     if (window)
         SDL_DestroyWindow(window);
     SDL_Quit();
+    TTF_Quit();
+}
+
+Stats &Renderer::GetStats()
+{
+    return stats;
 }
 
 bool Renderer::Initialize()
@@ -24,9 +37,21 @@ bool Renderer::Initialize()
         std::cerr << "SDL_Init err: " << SDL_GetError() << '\n';
         return false;
     }
+    if (!TTF_Init())
+    {
+        std::cerr << "TTF_Init err: " << SDL_GetError() << '\n';
+    }
     if (!SDL_CreateWindowAndRenderer("PR3TEST", width, height, 0, &window, &renderer))
     {
         std::cerr << "Window/Renderer err: " << SDL_GetError() << '\n';
+        return false;
+    }
+
+    font = TTF_OpenFont("../Assets/JetBrainsMono-Bold.ttf", 16);
+
+    if (!font)
+    {
+        std::cerr << "Font err: " << SDL_GetError() << '\n';
         return false;
     }
 
@@ -64,6 +89,12 @@ void Renderer::Clear(Color color)
         framebufer.begin(),
         framebufer.end(),
         color);
+
+    stats.vertices = 0;
+    stats.triangles = 0;
+    stats.trianglesCulled = 0;
+    stats.meshes = 0;
+    stats.pixelsDrawn = 0;
 }
 
 void Renderer::Present()
@@ -76,6 +107,37 @@ void Renderer::Present()
 
     SDL_RenderClear(renderer);
     SDL_RenderTexture(renderer, texture, nullptr, nullptr);
+
+    Stats &s = GetStats();
+
+    DrawText(10, 30,
+             std::format("FPS: {:.0f}", s.fps),
+             {255, 255, 255});
+
+    DrawText(10, 50,
+             std::format("Frame: {:.2f} ms", s.frameTime),
+             {255, 255, 255});
+
+    DrawText(10, 70,
+             std::format("Meshes: {}", s.meshes),
+             {255, 255, 255});
+
+    DrawText(10, 90,
+             std::format("Triangles: {}", s.triangles),
+             {255, 255, 255});
+
+    DrawText(10, 110,
+             std::format("Vertices: {}", s.vertices),
+             {255, 255, 255});
+
+    DrawText(10, 130,
+             std::format("Pixels: {}", s.pixelsDrawn),
+             {255, 255, 255});
+
+    DrawText(10, 150,
+             std::format("Culled: {}", s.trianglesCulled),
+             {255, 255, 255});
+
     SDL_RenderPresent(renderer);
 }
 
@@ -130,6 +192,33 @@ void Renderer::DrawLine(Vector2 start, Vector2 end, Color color)
     }
 }
 
+void Renderer::DrawText(int x, int y, const std::string &text, Color color)
+{
+    SDL_Color sdlColor{
+        color.r,
+        color.g,
+        color.b,
+        255};
+
+    SDL_Surface *surface = TTF_RenderText_Blended(font, text.c_str(), 0, sdlColor);
+
+    if (!surface)
+        return;
+
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+
+    SDL_FRect dst{
+        (float)x,
+        (float)y,
+        (float)surface->w,
+        (float)surface->h};
+
+    SDL_RenderTexture(renderer, texture, nullptr, &dst);
+
+    SDL_DestroyTexture(texture);
+    SDL_DestroySurface(surface);
+}
+
 Vector2 Renderer::ProjectVertex(const Vector3 &position)
 {
     constexpr float nearPlane = 0.1f;
@@ -144,8 +233,7 @@ Vector2 Renderer::ProjectVertex(const Vector3 &position)
 
     return {
         x + width * 0.5f,
-        -y + height * 0.5f
-    };
+        -y + height * 0.5f};
 }
 
 bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
@@ -156,7 +244,7 @@ bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
     Vector3 normal = Vector3::Cross(edge1, edge2);
 
     Vector3 centroid = (v0.position + v1.position + v2.position) * (1.0f / 3.0f);
-    Vector3 viewDir = Vector3{ -centroid.x, -centroid.y, -centroid.z };
+    Vector3 viewDir = Vector3{-centroid.x, -centroid.y, -centroid.z};
 
     return Vector3::Dot(normal, viewDir) <= 0.0f;
 }
@@ -206,6 +294,7 @@ void Renderer::RasterizeTriangle(const Triangle &triangle)
                 color.b = static_cast<unsigned char>(w0 * v0.color.b + w1 * v1.color.b + w2 * v2.color.b);
 
                 framebufer[y * width + x] = color;
+                stats.pixelsDrawn++;
             }
         }
     }
@@ -213,9 +302,12 @@ void Renderer::RasterizeTriangle(const Triangle &triangle)
 
 void Renderer::RenderMesh(const Mesh &mesh)
 {
+    stats.meshes++;
     for (size_t i = 0; i < mesh.indices.size(); i += 3)
     {
         Triangle triangle;
+        stats.triangles++;
+        stats.vertices += 3;
 
         triangle.v0 = mesh.vertices[mesh.indices[i]];
         triangle.v1 = mesh.vertices[mesh.indices[i + 1]];
@@ -227,8 +319,11 @@ void Renderer::RenderMesh(const Mesh &mesh)
         Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
         Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
 
-        if (IsBackFace(v0,v1,v2))
+        if (IsBackFace(v0, v1, v2))
+        {
+            stats.trianglesCulled++;
             continue;
+        }
 
         if (renderMode == RenderMode::Filled)
         {

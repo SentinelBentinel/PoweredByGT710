@@ -1,6 +1,7 @@
 #include "Renderer/Renderer.h"
 #include "Graphics/Triangle.h"
 #include "Graphics/Mesh.h"
+#include "Core/Timer.h"
 
 #include <vector>
 #include <iostream>
@@ -57,7 +58,7 @@ std::vector<Mesh> meshes =
     {
         cube};
 
-void Update()
+void Update(const Timer& timer)
 {
     meshes[0].transform.rotation.x += 0.001f;
     meshes[0].transform.rotation.y += 0.001f;
@@ -80,6 +81,7 @@ int main()
 {
     std::cout << "Hardware acceleration sold separately.\n";
     Renderer renderer(800, 600);
+    Timer timer;
 
     if (!renderer.Initialize())
         return -1;
@@ -88,7 +90,10 @@ int main()
 
     while (renderer.ProcessEvents())
     {
-        Update();
+        timer.Update();
+        renderer.GetStats().fps = timer.GetFPS();
+        renderer.GetStats().frameTime = timer.GetFrameTime();
+        Update(timer);
         Render(renderer);
     }
 

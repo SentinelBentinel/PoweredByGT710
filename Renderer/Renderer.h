@@ -1,7 +1,9 @@
 #pragma once
 
 #include "SDL3/SDL.h"
+#include <SDL3_ttf/SDL_ttf.h>
 #include <vector>
+#include <string>
 
 #include "../Math/Color.h"
 #include "../Graphics/Triangle.h"
@@ -9,6 +11,8 @@
 #include "../Math/Vector2.h"
 #include "../Math/Vector3.h"
 #include "../Math/Matrix4.h"
+#include "Stats.h"
+
 
 enum class RenderMode
 {
@@ -35,6 +39,9 @@ public:
     void RasterizeTriangle(const Triangle &triangle);
     void RenderMesh(const Mesh &mesh);
     void SetRenderMode(RenderMode mode);
+    void DrawText(int x, int y, const std::string& text, Color color);
+
+    Stats& GetStats();
 
     void Present();
 
@@ -46,6 +53,8 @@ private:
     Vector2 ProjectVertex(const Vector3 &position);
     bool IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2);
     RenderMode renderMode = RenderMode::Filled;
+    TTF_Font* font = nullptr;
+    Stats stats;
 
     int width;
     int height;

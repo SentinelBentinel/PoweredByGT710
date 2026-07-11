@@ -9,24 +9,34 @@ set(SOURCES
   gurt.cpp
   Renderer/Renderer.cpp
   Math/Matrix4.cpp
+  Core/Timer.cpp
 )
 
 add_executable(gurt ${SOURCES})
 target_include_directories(gurt PRIVATE ${CMAKE_SOURCE_DIR})
 
+# Try to find both using CMake Config files first (QUIETLY, so it doesn't crash)
 find_package(SDL3 CONFIG QUIET)
-if (SDL3_FOUND)
-  target_link_libraries(gurt PRIVATE SDL3::SDL3)
+find_package(SDL3_ttf CONFIG QUIET)
+
+if (SDL3_FOUND AND SDL3_ttf_FOUND)
+  # Happy path: Both found via CMake Config
+  target_link_libraries(gurt PRIVATE SDL3::SDL3 SDL3_ttf::SDL3_ttf)
 else()
+  # Fallback path: Use PkgConfig (common on Linux/MSYS2)
+  message(STATUS "CMake config not found, falling back to PkgConfig...")
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(SDL3_PKG REQUIRED sdl3)
-  target_include_directories(gurt PRIVATE ${SDL3_PKG_INCLUDE_DIRS})
-  target_link_libraries(gurt PRIVATE ${SDL3_PKG_LIBRARIES})
-  target_compile_options(gurt PRIVATE ${SDL3_PKG_CFLAGS_OTHER})
+  pkg_check_modules(SDL3_TTF_PKG REQUIRED SDL3_ttf)
+  
+  target_include_directories(gurt PRIVATE ${SDL3_PKG_INCLUDE_DIRS} ${SDL3_TTF_PKG_INCLUDE_DIRS})
+  target_link_libraries(gurt PRIVATE ${SDL3_PKG_LIBRARIES} ${SDL3_TTF_PKG_LIBRARIES})
+  target_compile_options(gurt PRIVATE ${SDL3_PKG_CFLAGS_OTHER} ${SDL3_TTF_PKG_CFLAGS_OTHER})
 endif()
 
 target_compile_options(gurt PRIVATE -Wall -Wextra)
 
+# Copy DLLs for Windows/MinGW environments
 if (TARGET SDL3::SDL3-shared)
     add_custom_command(TARGET gurt POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -36,9 +46,24 @@ if (TARGET SDL3::SDL3-shared)
 endif()
 
 if(MINGW)
+    # Copy all essential SDL3, SDL3_ttf, and font rendering dependency DLLs
     add_custom_command(TARGET gurt POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "C:/msys64/ucrt64/bin/SDL3.dll"
+            "C:/msys64/ucrt64/bin/SDL3_ttf.dll"
+            "C:/msys64/ucrt64/bin/libfreetype-6.dll"
+            "C:/msys64/ucrt64/bin/libharfbuzz-0.dll"
+            "C:/msys64/ucrt64/bin/libglib-2.0-0.dll"
+            "C:/msys64/ucrt64/bin/libintl-8.dll"
+            "C:/msys64/ucrt64/bin/libiconv-2.dll"
+            "C:/msys64/ucrt64/bin/libpcre2-8-0.dll"
+            "C:/msys64/ucrt64/bin/libgraphite2.dll"
+            "C:/msys64/ucrt64/bin/libbrotlicommon.dll"
+            "C:/msys64/ucrt64/bin/libbrotlidec.dll"
+            "C:/msys64/ucrt64/bin/libbz2-1.dll"
+            "C:/msys64/ucrt64/bin/libpng16-16.dll"
+            "C:/msys64/ucrt64/bin/libzstd.dll"
+            "C:/msys64/ucrt64/bin/zlib1.dll"
             "C:/msys64/ucrt64/bin/libstdc++-6.dll"
             "C:/msys64/ucrt64/bin/libgcc_s_seh-1.dll"
             "C:/msys64/ucrt64/bin/libwinpthread-1.dll"
