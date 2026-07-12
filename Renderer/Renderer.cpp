@@ -10,6 +10,13 @@
     Poop
 */
 
+static Vertex IntersectNearPlane(const Vertex& inside, const Vertex& outside, float nearPlane)
+{
+    float t = (nearPlane - inside.position.z) / (outside.position.z - inside.position.z);
+
+    return Vertex::Lerp(inside, outside, t);
+}
+
 Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h), depthBuffer(w * h) {};
 
 Renderer::~Renderer()
@@ -75,6 +82,23 @@ bool Renderer::Initialize()
 bool Renderer::ProcessEvents()
 {
     SDL_Event event;
+    const bool *keys = SDL_GetKeyboardState(nullptr);
+    Camera &cam = GetCamera();
+
+    float speed = 4.0f;
+
+    if (keys[SDL_SCANCODE_W])
+        cam.position.z += speed;
+    if (keys[SDL_SCANCODE_S])
+        cam.position.z -= speed;
+    if (keys[SDL_SCANCODE_A])
+        cam.position.x -= speed;
+    if (keys[SDL_SCANCODE_D])
+        cam.position.x += speed;
+    if (keys[SDL_SCANCODE_SPACE])
+        cam.position.y += speed;
+    if (keys[SDL_SCANCODE_LCTRL])
+        cam.position.y -= speed;
 
     while (SDL_PollEvent(&event))
     {
@@ -224,26 +248,32 @@ void Renderer::DrawText(int x, int y, const std::string &text, Color color)
     SDL_DestroySurface(surface);
 }
 
-Camera& Renderer::GetCamera()
+Camera &Renderer::GetCamera()
 {
     return camera;
 }
 
 Vector2 Renderer::ProjectVertex(const Vector3 &position)
 {
-    constexpr float nearPlane = 0.1f;
+    static Matrix4 projection = Matrix4::Perspective(
+        fov * (3.1415926535f / 180.0f),
+        static_cast<float>(width) / height,
+        0.1f,
+        1000.0f);
 
-    if (position.z < nearPlane)
+    Vector4 clip = projection.MultiplyPoint4(position);
+
+    if (clip.w <= 0.0f)
         return {-1000000.0f, -1000000.0f};
 
-    float focal = (height * 0.5f) / std::tan((fov * 0.5f) * (3.14159265f / 180.0f));
+    float invW = 1.0f / clip.w;
 
-    float x = (position.x * focal) / position.z;
-    float y = (position.y * focal) / position.z;
+    float ndcX = clip.x * invW;
+    float ndcY = clip.y * invW;
 
     return {
-        x + width * 0.5f,
-        -y + height * 0.5f};
+        (ndcX + 1.0f) * 0.5f * width,
+        (1.0f - ndcY) * 0.5f * height};
 }
 
 bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
@@ -261,9 +291,9 @@ bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
 
 void Renderer::RasterizeTriangle(const Triangle &triangle)
 {
-    Vertex v0 = TransformVertex(triangle.v0, triangle.transform);
-    Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
-    Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
+    Vertex v0 = triangle.v0;
+    Vertex v1 = triangle.v1;
+    Vertex v2 = triangle.v2;
 
     Vector2 p0 = ProjectVertex(v0.position);
     Vector2 p1 = ProjectVertex(v1.position);
@@ -310,8 +340,8 @@ void Renderer::RasterizeTriangle(const Triangle &triangle)
                 color.b = static_cast<unsigned char>(w0 * v0.color.b + w1 * v1.color.b + w2 * v2.color.b);
 
                 int index = y * width + x;
-                
-                if (depth < depthBuffer[index]) 
+
+                if (depth < depthBuffer[index])
                 {
                     depthBuffer[index] = depth;
 
@@ -329,43 +359,39 @@ void Renderer::RenderMesh(const Mesh &mesh)
     stats.meshes++;
     for (size_t i = 0; i < mesh.indices.size(); i += 3)
     {
-        Triangle triangle;
         stats.triangles++;
         stats.vertices += 3;
+        
+        Triangle triangle;
 
-        triangle.v0 = mesh.vertices[mesh.indices[i]];
-        triangle.v1 = mesh.vertices[mesh.indices[i + 1]];
-        triangle.v2 = mesh.vertices[mesh.indices[i + 2]];
+        triangle.v0 = TransformVertex(mesh.vertices[mesh.indices[i]], mesh.transform);
+        triangle.v1 = TransformVertex(mesh.vertices[mesh.indices[i + 1]], mesh.transform);
+        triangle.v2 = TransformVertex(mesh.vertices[mesh.indices[i + 2]], mesh.transform);
 
-        triangle.transform = mesh.transform;
-
-        Vertex v0 = TransformVertex(triangle.v0, triangle.transform);
-        Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
-        Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
-
-        if (IsBackFace(v0, v1, v2))
+        if (IsBackFace(triangle.v0, triangle.v1, triangle.v2))
         {
             stats.trianglesCulled++;
             continue;
         }
 
-        if (renderMode == RenderMode::Filled)
+        std::vector<Triangle> clipped;
+        PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(triangle, clipped);
+        
+        for (const Triangle& t : clipped)
         {
-            RasterizeTriangle(triangle);
-        }
-        else
-        {
-            Vertex v0 = TransformVertex(triangle.v0, triangle.transform);
-            Vertex v1 = TransformVertex(triangle.v1, triangle.transform);
-            Vertex v2 = TransformVertex(triangle.v2, triangle.transform);
+            if (renderMode == RenderMode::Filled)
+            {
+                RasterizeTriangle(t);
+            } else
+            {
+                Vector2 p0 = ProjectVertex(t.v0.position);
+                Vector2 p1 = ProjectVertex(t.v1.position);
+                Vector2 p2 = ProjectVertex(t.v2.position);
 
-            Vector2 p0 = ProjectVertex(v0.position);
-            Vector2 p1 = ProjectVertex(v1.position);
-            Vector2 p2 = ProjectVertex(v2.position);
-
-            DrawLine(p0, p1, v0.color);
-            DrawLine(p1, p2, v1.color);
-            DrawLine(p2, p0, v2.color);
+                DrawLine(p0, p1, t.v0.color);
+                DrawLine(p1, p2, t.v1.color);
+                DrawLine(p2, p0, t.v2.color);
+            }
         }
     }
 }
@@ -386,9 +412,93 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
         Matrix4::RotationX(transform.rotation.x) *
         Matrix4::Scale(transform.scale);
 
-    Matrix4 mvp = camera.GetViewMatrix() * model;
+    Vector3 world = model.MultiplyPoint(vertex.position);
 
-    result.position = mvp.MultiplyPoint(vertex.position);
+    Vector3 view = camera.GetViewMatrix().MultiplyPoint(world);
+
+    result.position = view;
 
     return result;
+}
+
+void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle& triangle, std::vector<Triangle>& output)
+{
+    constexpr float nearPlane = 0.1f;
+
+    Vertex verts[3] =
+    {
+        TransformVertex(triangle.v0, triangle.transform),
+        TransformVertex(triangle.v1, triangle.transform),
+        TransformVertex(triangle.v2, triangle.transform)
+    };
+
+    Vertex inside[3];
+    Vertex outside[3];
+
+    int insideCount = 0;
+    int outsideCount = 0;
+
+    for (int i = 0; i < 3; i++)
+    {
+        if (verts[i].position.z >= nearPlane)
+            inside[insideCount++] = verts[i];
+        else
+            outside[outsideCount++] = verts[i];
+    }
+
+    if (insideCount == 0)
+        return;
+
+    if (insideCount == 3)
+    {
+        Triangle t;
+        t.v0 = inside[0];
+        t.v1 = inside[1];
+        t.v2 = inside[2];
+
+        output.push_back(t);
+        return;
+    }
+
+    if (insideCount == 1)
+    {
+        Vertex a = inside[0];
+
+        Vertex b = IntersectNearPlane(a, outside[0], nearPlane);
+        Vertex c = IntersectNearPlane(a, outside[1], nearPlane);
+
+        Triangle t;
+
+        t.v0 = a;
+        t.v1 = b;
+        t.v2 = c;
+
+        output.push_back(t);
+
+        return;
+    }
+
+    if (insideCount == 2)
+    {
+        Vertex a = inside[0];
+        Vertex b = inside[1];
+
+        Vertex c = IntersectNearPlane(a, outside[0], nearPlane);
+        Vertex d = IntersectNearPlane(b, outside[0], nearPlane);
+
+        Triangle t1;
+        t1.v0 = a;
+        t1.v1 = b;
+        t1.v2 = c;
+
+        Triangle t2;
+        t2.v0 = b;
+        t2.v1 = d;
+        t2.v2 = c;
+
+        output.push_back(t1);
+        output.push_back(t2);
+
+        return;
+    }
 }

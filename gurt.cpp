@@ -58,8 +58,8 @@ Mesh frontCube = []()
     Mesh m = cube;
     m.transform.position = {0.0f, 0.0f, 600.0f};
     m.transform.scale = {2.0f,2.0f,2.0f};
-    for (auto &v : m.vertices)
-        v.color = {255, 26, 43};
+    // for (auto &v : m.vertices)
+    //     v.color = {255, 26, 43};
     return m;
 }();
 Mesh backCube = []()
@@ -73,15 +73,13 @@ Mesh backCube = []()
 
 std::vector<Mesh> meshes =
     {
-        backCube, frontCube};
+        frontCube}; // Can add backCube, and, cube
 
 void Update(const Timer &timer)
 {
     (void)timer;
     meshes[0].transform.rotation.x += 0.001f;
     meshes[0].transform.rotation.y += 0.001f;
-    meshes[1].transform.rotation.x += 0.001f;
-    meshes[1].transform.rotation.y += 0.001f;
 }
 
 void Render(Renderer &renderer)
@@ -105,7 +103,7 @@ int main()
     if (!renderer.Initialize())
         return -1;
 
-    renderer.SetRenderMode(RenderMode::Wireframe);
+    renderer.SetRenderMode(RenderMode::Filled);
     renderer.GetCamera().position.z = -200;
 
     while (renderer.ProcessEvents())

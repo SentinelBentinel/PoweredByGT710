@@ -54,6 +54,7 @@ private:
     Vertex TransformVertex(const Vertex &vertex, const Transform &transform);
     Vector2 ProjectVertex(const Vector3 &position);
     bool IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2);
+    void PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle& triangle, std::vector<Triangle>& output);
     RenderMode renderMode = RenderMode::Filled;
     TTF_Font* font = nullptr;
     Stats stats;
