@@ -53,7 +53,7 @@ private:
     float EdgeFunc(const Vector2 &v1, const Vector2 &v2, const Vector2 &p);
     Vertex TransformVertex(const Vertex &vertex, const Transform &transform);
     Vector2 ProjectVertex(const Vector3 &position);
-    bool IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2);
+    bool IsBackFace(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2);
     void PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle& triangle, std::vector<Triangle>& output);
     RenderMode renderMode = RenderMode::Filled;
     TTF_Font* font = nullptr;

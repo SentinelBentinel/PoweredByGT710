@@ -10,7 +10,7 @@
     Poop
 */
 
-static Vertex IntersectNearPlane(const Vertex& inside, const Vertex& outside, float nearPlane)
+static Vertex IntersectNearPlane(const Vertex &inside, const Vertex &outside, float nearPlane)
 {
     float t = (nearPlane - inside.position.z) / (outside.position.z - inside.position.z);
 
@@ -276,17 +276,11 @@ Vector2 Renderer::ProjectVertex(const Vector3 &position)
         (1.0f - ndcY) * 0.5f * height};
 }
 
-bool Renderer::IsBackFace(const Vertex &v0, const Vertex &v1, const Vertex &v2)
+bool Renderer::IsBackFace(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2)
 {
-    Vector3 edge1 = v1.position - v0.position;
-    Vector3 edge2 = v2.position - v0.position;
+    float area = (v1.x - v0.x) * (v2.y - v0.y) - (v1.y - v0.y) * (v2.x - v0.x);
 
-    Vector3 normal = Vector3::Cross(edge1, edge2);
-
-    Vector3 centroid = (v0.position + v1.position + v2.position) * (1.0f / 3.0f);
-    Vector3 viewDir = Vector3{-centroid.x, -centroid.y, -centroid.z};
-
-    return Vector3::Dot(normal, viewDir) <= 0.0f;
+    return area <= 0.0f;
 }
 
 void Renderer::RasterizeTriangle(const Triangle &triangle)
@@ -361,28 +355,33 @@ void Renderer::RenderMesh(const Mesh &mesh)
     {
         stats.triangles++;
         stats.vertices += 3;
-        
+
         Triangle triangle;
 
         triangle.v0 = TransformVertex(mesh.vertices[mesh.indices[i]], mesh.transform);
         triangle.v1 = TransformVertex(mesh.vertices[mesh.indices[i + 1]], mesh.transform);
         triangle.v2 = TransformVertex(mesh.vertices[mesh.indices[i + 2]], mesh.transform);
 
-        if (IsBackFace(triangle.v0, triangle.v1, triangle.v2))
-        {
-            stats.trianglesCulled++;
-            continue;
-        }
+        Vector2 p0 = ProjectVertex(triangle.v0.position);
+        Vector2 p1 = ProjectVertex(triangle.v1.position);
+        Vector2 p2 = ProjectVertex(triangle.v2.position);
 
         std::vector<Triangle> clipped;
         PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(triangle, clipped);
-        
-        for (const Triangle& t : clipped)
+
+        for (const Triangle &t : clipped)
         {
+            if (IsBackFace(p0,p1,p2))
+            {
+                stats.trianglesCulled++;
+                continue;
+            }
+
             if (renderMode == RenderMode::Filled)
             {
                 RasterizeTriangle(t);
-            } else
+            }
+            else
             {
                 Vector2 p0 = ProjectVertex(t.v0.position);
                 Vector2 p1 = ProjectVertex(t.v1.position);
@@ -421,16 +420,15 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
     return result;
 }
 
-void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle& triangle, std::vector<Triangle>& output)
+void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle &triangle, std::vector<Triangle> &output)
 {
     constexpr float nearPlane = 0.1f;
 
     Vertex verts[3] =
-    {
-        TransformVertex(triangle.v0, triangle.transform),
-        TransformVertex(triangle.v1, triangle.transform),
-        TransformVertex(triangle.v2, triangle.transform)
-    };
+        {
+            TransformVertex(triangle.v0, triangle.transform),
+            TransformVertex(triangle.v1, triangle.transform),
+            TransformVertex(triangle.v2, triangle.transform)};
 
     Vertex inside[3];
     Vertex outside[3];
