@@ -11,12 +11,12 @@ struct Vector2
     constexpr Vector2(float x, float y)
         : x(x), y(y) {}
 
-    constexpr Vector2 operator+(const Vector2& other) const
+    constexpr Vector2 operator+(const Vector2 &other) const
     {
         return {x + other.x, y + other.y};
     }
 
-    constexpr Vector2 operator-(const Vector2& other) const
+    constexpr Vector2 operator-(const Vector2 &other) const
     {
         return {x - other.x, y - other.y};
     }
@@ -31,14 +31,14 @@ struct Vector2
         return {x / scalar, y / scalar};
     }
 
-    Vector2& operator+=(const Vector2& other)
+    Vector2 &operator+=(const Vector2 &other)
     {
         x += other.x;
         y += other.y;
         return *this;
     }
 
-    Vector2& operator-=(const Vector2& other)
+    Vector2 &operator-=(const Vector2 &other)
     {
         x -= other.x;
         y -= other.y;
@@ -60,7 +60,7 @@ struct Vector2
         return *this / length;
     }
 
-    static float Dot(const Vector2& a, const Vector2& b)
+    static float Dot(const Vector2 &a, const Vector2 &b)
     {
         return a.x * b.x + a.y * b.y;
     }

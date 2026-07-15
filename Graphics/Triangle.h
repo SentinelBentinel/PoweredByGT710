@@ -3,7 +3,8 @@
 #include "Vertex.h"
 #include "Transform.h"
 
-struct Triangle {
+struct Triangle
+{
     Vertex v0;
     Vertex v1;
     Vertex v2;

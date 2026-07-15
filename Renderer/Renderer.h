@@ -12,8 +12,8 @@
 #include "../Math/Vector3.h"
 #include "../Math/Matrix4.h"
 #include "../Core/Camera.h"
+#include "../Graphics/Plane.h"
 #include "Stats.h"
-
 
 enum class RenderMode
 {
@@ -37,13 +37,13 @@ public:
 
     void DrawPixel(int x, int y, Color color);
     void DrawLine(Vector2 start, Vector2 end, Color color);
-    void RasterizeTriangle(const Triangle &triangle);
+    void RasterizeTriangleViewSpace(const Triangle &triangle);
     void RenderMesh(const Mesh &mesh);
     void SetRenderMode(RenderMode mode);
-    void DrawText(int x, int y, const std::string& text, Color color);
+    void DrawText(int x, int y, const std::string &text, Color color);
 
-    Stats& GetStats();
-    Camera& GetCamera();
+    Stats &GetStats();
+    Camera &GetCamera();
 
     void Present();
 
@@ -54,19 +54,19 @@ private:
     Vertex TransformVertex(const Vertex &vertex, const Transform &transform);
     Vector2 ProjectVertex(const Vector3 &position);
     bool IsBackFace(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2);
-    void PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle& triangle, std::vector<Triangle>& output);
+    void PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle &triangle, const Plane &plane ,std::vector<Triangle> &output);
     RenderMode renderMode = RenderMode::Filled;
-    TTF_Font* font = nullptr;
+    TTF_Font *font = nullptr;
     Stats stats;
     Camera camera;
-    
+
     int width;
     int height;
-    
+
     SDL_Window *window = nullptr;
     SDL_Renderer *renderer = nullptr;
     SDL_Texture *texture = nullptr;
-    
+
     std::vector<Color> framebufer;
     std::vector<float> depthBuffer;
 };

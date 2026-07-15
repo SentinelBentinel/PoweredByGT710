@@ -10,11 +10,27 @@
     Poop
 */
 
-static Vertex IntersectNearPlane(const Vertex &inside, const Vertex &outside, float nearPlane)
+float DistanceToPlane(const Plane &plane, const Vector3 &point)
 {
-    float t = (nearPlane - inside.position.z) / (outside.position.z - inside.position.z);
+    return Vector3::Dot(plane.normal, point) + plane.distance;
+}
+
+static Vertex IntersectPlane(const Vertex &inside, const Vertex &outside, const Plane &plane)
+{
+    float da = DistanceToPlane(plane, inside.position);
+    float db = DistanceToPlane(plane, outside.position);
+    float t = da / (da - db);
 
     return Vertex::Lerp(inside, outside, t);
+}
+
+Plane NormalizePlane(const Plane &plane)
+{
+    float length = plane.normal.Length();
+
+    return {
+        plane.normal / length,
+        plane.distance / length};
 }
 
 Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h), depthBuffer(w * h) {};
@@ -283,7 +299,7 @@ bool Renderer::IsBackFace(const Vector2 &v0, const Vector2 &v1, const Vector2 &v
     return area <= 0.0f;
 }
 
-void Renderer::RasterizeTriangle(const Triangle &triangle)
+void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
 {
     Vertex v0 = triangle.v0;
     Vertex v1 = triangle.v1;
@@ -362,16 +378,65 @@ void Renderer::RenderMesh(const Mesh &mesh)
         triangle.v1 = TransformVertex(mesh.vertices[mesh.indices[i + 1]], mesh.transform);
         triangle.v2 = TransformVertex(mesh.vertices[mesh.indices[i + 2]], mesh.transform);
 
-        Vector2 p0 = ProjectVertex(triangle.v0.position);
-        Vector2 p1 = ProjectVertex(triangle.v1.position);
-        Vector2 p2 = ProjectVertex(triangle.v2.position);
+        std::vector<Triangle> input;
+        std::vector<Triangle> output;
+
+        input.push_back(triangle);
+
+        auto ClipStage = [&](const Plane &plane)
+        {
+            output.clear();
+
+            for (const Triangle &t : input)
+                PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(t, plane, output);
+
+            input = output;
+
+            if (input.empty())
+                return;
+        };
 
         std::vector<Triangle> clipped;
-        PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(triangle, clipped);
 
-        for (const Triangle &t : clipped)
+        Plane nearPlane = NormalizePlane({{0.0f, 0.0f, 1.0f},
+                                          -0.1f});
+        Plane farPlane = NormalizePlane({{0.0f, 0.0f, -1.0f},
+                                         10000.0f});
+        Plane leftPlane = NormalizePlane({{1.0f, 0.0f, 1.0f},
+                                          0.0f});
+
+        Plane rightPlane = NormalizePlane({{-1.0f, 0.0f, 1.0f},
+                                           0.0f});
+
+        Plane topPlane = NormalizePlane({{0.0f, -1.0f, 1.0f},
+                                         0.0f});
+
+        Plane bottomPlane = NormalizePlane({{0.0f, 1.0f, 1.0f},
+                                            0.0f});
+        ClipStage(nearPlane);
+        if (input.empty()) continue;
+        ClipStage(farPlane);
+        if (input.empty()) continue;
+        ClipStage(leftPlane);
+        if (input.empty()) continue;
+        ClipStage(rightPlane);
+        if (input.empty()) continue;
+        ClipStage(topPlane);
+        if (input.empty()) continue;
+        ClipStage(bottomPlane);
+        if (input.empty()) continue;
+
+        for (const Triangle &clippedTriangle : input)
         {
-            if (IsBackFace(p0,p1,p2))
+            Vertex v0 = clippedTriangle.v0;
+            Vertex v1 = clippedTriangle.v1;
+            Vertex v2 = clippedTriangle.v2;
+
+            Vector2 p0 = ProjectVertex(v0.position);
+            Vector2 p1 = ProjectVertex(v1.position);
+            Vector2 p2 = ProjectVertex(v2.position);
+
+            if (IsBackFace(p0, p1, p2))
             {
                 stats.trianglesCulled++;
                 continue;
@@ -379,17 +444,17 @@ void Renderer::RenderMesh(const Mesh &mesh)
 
             if (renderMode == RenderMode::Filled)
             {
-                RasterizeTriangle(t);
+                RasterizeTriangleViewSpace(clippedTriangle);
             }
             else
             {
-                Vector2 p0 = ProjectVertex(t.v0.position);
-                Vector2 p1 = ProjectVertex(t.v1.position);
-                Vector2 p2 = ProjectVertex(t.v2.position);
+                Vector2 p0 = ProjectVertex(v0.position);
+                Vector2 p1 = ProjectVertex(v1.position);
+                Vector2 p2 = ProjectVertex(v2.position);
 
-                DrawLine(p0, p1, t.v0.color);
-                DrawLine(p1, p2, t.v1.color);
-                DrawLine(p2, p0, t.v2.color);
+                DrawLine(p0, p1, v0.color);
+                DrawLine(p1, p2, v1.color);
+                DrawLine(p2, p0, v2.color);
             }
         }
     }
@@ -420,15 +485,13 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
     return result;
 }
 
-void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle &triangle, std::vector<Triangle> &output)
+void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle &triangle, const Plane &plane, std::vector<Triangle> &output)
 {
-    constexpr float nearPlane = 0.1f;
-
     Vertex verts[3] =
         {
-            TransformVertex(triangle.v0, triangle.transform),
-            TransformVertex(triangle.v1, triangle.transform),
-            TransformVertex(triangle.v2, triangle.transform)};
+            triangle.v0,
+            triangle.v1,
+            triangle.v2};
 
     Vertex inside[3];
     Vertex outside[3];
@@ -438,7 +501,7 @@ void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingA
 
     for (int i = 0; i < 3; i++)
     {
-        if (verts[i].position.z >= nearPlane)
+        if (DistanceToPlane(plane, verts[i].position) >= 0.0f)
             inside[insideCount++] = verts[i];
         else
             outside[outsideCount++] = verts[i];
@@ -462,8 +525,8 @@ void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingA
     {
         Vertex a = inside[0];
 
-        Vertex b = IntersectNearPlane(a, outside[0], nearPlane);
-        Vertex c = IntersectNearPlane(a, outside[1], nearPlane);
+        Vertex b = IntersectPlane(a, outside[0], plane);
+        Vertex c = IntersectPlane(a, outside[1], plane);
 
         Triangle t;
 
@@ -481,8 +544,8 @@ void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingA
         Vertex a = inside[0];
         Vertex b = inside[1];
 
-        Vertex c = IntersectNearPlane(a, outside[0], nearPlane);
-        Vertex d = IntersectNearPlane(b, outside[0], nearPlane);
+        Vertex c = IntersectPlane(a, outside[0], plane);
+        Vertex d = IntersectPlane(b, outside[0], plane);
 
         Triangle t1;
         t1.v0 = a;
