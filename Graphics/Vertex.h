@@ -2,6 +2,7 @@
 
 #include "../Math/Vector3.h"
 #include "../Math/Color.h"
+#include <cstdint>
 
 struct Vertex
 {

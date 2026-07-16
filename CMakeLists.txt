@@ -11,12 +11,14 @@ set(SOURCES
   Math/Matrix4.cpp
   Core/Timer.cpp
   Core/Camera.cpp
+  IO/OBJLoader.cpp
 )
 
 add_executable(gurt ${SOURCES}
   Core/Camera.cpp
   Math/Vector4.h
-  Graphics/Plane.h)
+  Graphics/Plane.h
+  IO/OBJLoader.cpp)
 target_include_directories(gurt PRIVATE ${CMAKE_SOURCE_DIR})
 
 # Try to find both using CMake Config files first (QUIETLY, so it doesn't crash)

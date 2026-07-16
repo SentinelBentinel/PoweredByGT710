@@ -101,7 +101,7 @@ bool Renderer::ProcessEvents()
     const bool *keys = SDL_GetKeyboardState(nullptr);
     Camera &cam = GetCamera();
 
-    float speed = 4.0f;
+    float speed = 2.0f;
 
     if (keys[SDL_SCANCODE_W])
         cam.position.z += speed;
@@ -313,6 +313,10 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
     float z1 = v1.position.z;
     float z2 = v2.position.z;
 
+    float invZ0 = 1.0f / z0;
+    float invZ1 = 1.0f / z1;
+    float invZ2 = 1.0f / z2;
+
     float area = EdgeFunc(
         p0,
         p1,
@@ -341,13 +345,19 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
                 w1 /= area;
                 w2 /= area;
 
-                float depth = w0 * z0 + w1 * z1 + w2 * z2;
+                float invZ = w0 * invZ0 + w1 * invZ1 + w2 * invZ2;
+
+                float depth = 1.0f / invZ;
 
                 Color color;
 
-                color.r = static_cast<unsigned char>(w0 * v0.color.r + w1 * v1.color.r + w2 * v2.color.r);
-                color.g = static_cast<unsigned char>(w0 * v0.color.g + w1 * v1.color.g + w2 * v2.color.g);
-                color.b = static_cast<unsigned char>(w0 * v0.color.b + w1 * v1.color.b + w2 * v2.color.b);
+                float cW0 = (w0 * invZ0) / invZ;
+                float cW1 = (w1 * invZ1) / invZ;
+                float cW2 = (w2 * invZ2) / invZ;
+
+                color.r = static_cast<unsigned char>(cW0 * v0.color.r + cW1 * v1.color.r + cW2 * v2.color.r);
+                color.g = static_cast<unsigned char>(cW0 * v0.color.g + cW1 * v1.color.g + cW2 * v2.color.g);
+                color.b = static_cast<unsigned char>(cW0 * v0.color.b + cW1 * v1.color.b + cW2 * v2.color.b);
 
                 int index = y * width + x;
 
@@ -493,73 +503,40 @@ void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingA
             triangle.v1,
             triangle.v2};
 
-    Vertex inside[3];
-    Vertex outside[3];
-
-    int insideCount = 0;
-    int outsideCount = 0;
+    std::vector<Vertex> clippedPolygon;
 
     for (int i = 0; i < 3; i++)
     {
-        if (DistanceToPlane(plane, verts[i].position) >= 0.0f)
-            inside[insideCount++] = verts[i];
-        else
-            outside[outsideCount++] = verts[i];
+        const Vertex &current = verts[i];
+        const Vertex &next = verts[(i + 1) % 3];
+
+        float distCurrent = DistanceToPlane(plane, current.position);
+        float distNext = DistanceToPlane(plane, next.position);
+
+        if (distCurrent >= 0.0f)
+        {
+            clippedPolygon.push_back(current);
+
+            if (distNext < 0.0f)
+            {
+                clippedPolygon.push_back(IntersectPlane(current,next,plane));
+            }
+        }
+
+        else if (distNext >= 0.0f)
+        {
+            clippedPolygon.push_back(IntersectPlane(current, next, plane));
+        }
     }
 
-    if (insideCount == 0)
-        return;
+    if (clippedPolygon.size() < 3) return;
 
-    if (insideCount == 3)
+    for (size_t i = 1; i < clippedPolygon.size() - 1; i++)
     {
         Triangle t;
-        t.v0 = inside[0];
-        t.v1 = inside[1];
-        t.v2 = inside[2];
-
+        t.v0 = clippedPolygon[0];
+        t.v1 = clippedPolygon[i];
+        t.v2 = clippedPolygon[i + 1];
         output.push_back(t);
-        return;
-    }
-
-    if (insideCount == 1)
-    {
-        Vertex a = inside[0];
-
-        Vertex b = IntersectPlane(a, outside[0], plane);
-        Vertex c = IntersectPlane(a, outside[1], plane);
-
-        Triangle t;
-
-        t.v0 = a;
-        t.v1 = b;
-        t.v2 = c;
-
-        output.push_back(t);
-
-        return;
-    }
-
-    if (insideCount == 2)
-    {
-        Vertex a = inside[0];
-        Vertex b = inside[1];
-
-        Vertex c = IntersectPlane(a, outside[0], plane);
-        Vertex d = IntersectPlane(b, outside[0], plane);
-
-        Triangle t1;
-        t1.v0 = a;
-        t1.v1 = b;
-        t1.v2 = c;
-
-        Triangle t2;
-        t2.v0 = b;
-        t2.v1 = d;
-        t2.v2 = c;
-
-        output.push_back(t1);
-        output.push_back(t2);
-
-        return;
     }
 }
