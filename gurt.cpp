@@ -8,9 +8,7 @@
 #include <iostream>
 #include <filesystem>
 
-std::vector<Mesh> meshes =
-    {
-        OBJLoader::Load("../assets/teaofpotsLOW.obj")}; // Can add backCube, and, cube
+std::vector<Mesh> meshes;
 
 void Update(const Timer &timer)
 {
@@ -42,6 +40,11 @@ int main()
 
     renderer.SetRenderMode(RenderMode::Filled);
     renderer.GetCamera().position.z = -200;
+
+    Mesh teapotLQ = OBJLoader::Load("../assets/teaofpotsLOW.obj");
+    ComputeVertexNormals(teapotLQ);
+
+    meshes.push_back(teapotLQ);
 
     while (renderer.ProcessEvents())
     {

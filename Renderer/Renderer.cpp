@@ -315,10 +315,6 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
     Vertex v1 = triangle.v1;
     Vertex v2 = triangle.v2;
 
-    Vector3 normal = ComputeFaceNormal(v0,v1,v2);
-
-    float brightness = std::max(light.ambient, Vector3::Dot(normal, -light.direction) * light.intensity);
-
     Vector2 p0 = ProjectVertex(v0.position);
     Vector2 p1 = ProjectVertex(v1.position);
     Vector2 p2 = ProjectVertex(v2.position);
@@ -358,6 +354,8 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
                 w0 /= area;
                 w1 /= area;
                 w2 /= area;
+
+                float brightness = w0 * v0.brightness + w1 * v1.brightness + w2 * v2.brightness;
 
                 float invZ = w0 * invZ0 + w1 * invZ1 + w2 * invZ2;
 
@@ -504,7 +502,21 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
 
     Vector3 view = camera.GetViewMatrix().MultiplyPoint(world);
 
+    Vector3 worldNormal = model.MultiplyVector(vertex.normal).Normalized();
+
+    Vector3 viewNormal = camera.GetViewMatrix().MultiplyVector(worldNormal).Normalized();
+
     result.position = view;
+    result.normal = viewNormal;
+
+    Vector3 lightDir =
+    {
+        -light.direction.x,
+        -light.direction.y,
+        -light.direction.z
+    };
+
+    result.brightness = std::max(light.ambient, Vector3::Dot(viewNormal, lightDir));
 
     return result;
 }

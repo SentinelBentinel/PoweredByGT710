@@ -7,7 +7,10 @@
 struct Vertex
 {
     Vector3 position;
+    Vector3 normal;
     Color color;
+
+    float brightness = 1.0f;
 
     inline static Vertex Lerp(const Vertex &a, const Vertex &b, float t)
     {

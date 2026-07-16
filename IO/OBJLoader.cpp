@@ -82,3 +82,28 @@ Mesh OBJLoader::Load(const std::string &path)
 
     return mesh;
 }
+
+void ComputeVertexNormals(Mesh &mesh)
+{
+    for (Vertex &v : mesh.vertices)
+        v.normal = {0,0,0};
+
+    for (size_t i = 0; i < mesh.indices.size(); i += 3)
+    {
+        Vertex &v0 = mesh.vertices[mesh.indices[i]];
+        Vertex &v1 = mesh.vertices[mesh.indices[i + 1]];
+        Vertex &v2 = mesh.vertices[mesh.indices[i + 2]];
+
+        Vector3 edge1 = v1.position - v0.position;
+        Vector3 edge2 = v2.position - v0.position;
+
+        Vector3 normal = Vector3::Cross(edge1, edge2).Normalized();
+
+        v0.normal += normal;
+        v1.normal += normal;
+        v2.normal += normal;
+    }
+
+    for (Vertex &v : mesh.vertices)
+        v.normal = v.normal.Normalized();
+}
