@@ -94,6 +94,8 @@ bool Renderer::Initialize()
 
     light.direction = light.direction.Normalized();
 
+    SDL_SetWindowRelativeMouseMode(window, true);
+
     return true;
 }
 
@@ -103,26 +105,40 @@ bool Renderer::ProcessEvents()
     const bool *keys = SDL_GetKeyboardState(nullptr);
     Camera &cam = GetCamera();
 
-    float speed = 2.0f;
+    float speed = 1.0f;
+    float sensitivity = 0.003f;
+
+    Vector3 forward = cam.Forward();
+    Vector3 right = cam.Right();
+    Vector3 up = Vector3::Cross(right, forward).Normalized();
 
     if (keys[SDL_SCANCODE_W])
-        cam.position.z += speed;
+        cam.position += forward * speed;
     if (keys[SDL_SCANCODE_S])
-        cam.position.z -= speed;
+        cam.position -= forward * speed;
     if (keys[SDL_SCANCODE_A])
-        cam.position.x -= speed;
+        cam.position -= right * speed;
     if (keys[SDL_SCANCODE_D])
-        cam.position.x += speed;
+        cam.position += right * speed;
     if (keys[SDL_SCANCODE_SPACE])
-        cam.position.y += speed;
+        cam.position -= up * speed;
     if (keys[SDL_SCANCODE_LCTRL])
-        cam.position.y -= speed;
+        cam.position += up * speed;
+    if (keys[SDL_SCANCODE_ESCAPE])
+        return false;
 
     while (SDL_PollEvent(&event))
     {
         if (event.type == SDL_EVENT_QUIT)
             return false;
+        if (event.type == SDL_EVENT_MOUSE_MOTION)
+        {
+            cam.rotation.y += event.motion.xrel * sensitivity;
+            cam.rotation.x += event.motion.yrel * sensitivity;
+        }
     }
+
+    cam.rotation.x = std::clamp(cam.rotation.x, -1.55f, 1.55f);
     return true;
 }
 

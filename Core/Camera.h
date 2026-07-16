@@ -10,4 +10,6 @@ public:
     Vector3 rotation = {0.0f,0.0f,0.0f};
 
     Matrix4 GetViewMatrix() const;
+    Vector3 Forward() const;
+    Vector3 Right() const;
 };
