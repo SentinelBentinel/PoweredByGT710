@@ -99,7 +99,7 @@ struct Vector3
         float length = Length();
 
         if (length == 0.0f)
-            return {};
+            return {0.0f, 0.0f, 0.0f};
 
         return *this / length;
     }

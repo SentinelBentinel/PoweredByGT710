@@ -13,6 +13,7 @@
 #include "../Math/Matrix4.h"
 #include "../Core/Camera.h"
 #include "../Graphics/Plane.h"
+#include "../Graphics/Light.h"
 #include "Stats.h"
 
 enum class RenderMode
@@ -54,11 +55,13 @@ private:
     Vertex TransformVertex(const Vertex &vertex, const Transform &transform);
     Vector2 ProjectVertex(const Vector3 &position);
     bool IsBackFace(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2);
-    void PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle &triangle, const Plane &plane ,std::vector<Triangle> &output);
+    void PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingAlgorithmOnInputTriangleAgainstTheNearZPlaneToPreventZeroDivison(const Triangle &triangle, const Plane &plane, std::vector<Triangle> &output);
+    Vector3 ComputeFaceNormal(const Vertex &v0, const Vertex &v1, const Vertex &v2);
     RenderMode renderMode = RenderMode::Filled;
     TTF_Font *font = nullptr;
     Stats stats;
     Camera camera;
+    DirectionalLight light;
 
     int width;
     int height;

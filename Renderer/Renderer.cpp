@@ -92,6 +92,8 @@ bool Renderer::Initialize()
         return false;
     }
 
+    light.direction = light.direction.Normalized();
+
     return true;
 }
 
@@ -194,6 +196,14 @@ std::vector<Color> &Renderer::GetFramebuffer()
 void Renderer::SetRenderMode(RenderMode mode)
 {
     renderMode = mode;
+}
+
+Vector3 Renderer::ComputeFaceNormal(const Vertex &v0, const Vertex &v1, const Vertex &v2)
+{
+    Vector3 edge1 = v1.position - v0.position;
+    Vector3 edge2 = v2.position - v0.position;
+
+    return Vector3::Cross(edge1, edge2).Normalized();
 }
 
 void Renderer::DrawPixel(int x, int y, Color color)
@@ -305,6 +315,10 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
     Vertex v1 = triangle.v1;
     Vertex v2 = triangle.v2;
 
+    Vector3 normal = ComputeFaceNormal(v0,v1,v2);
+
+    float brightness = std::max(light.ambient, Vector3::Dot(normal, -light.direction) * light.intensity);
+
     Vector2 p0 = ProjectVertex(v0.position);
     Vector2 p1 = ProjectVertex(v1.position);
     Vector2 p2 = ProjectVertex(v2.position);
@@ -355,9 +369,9 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
                 float cW1 = (w1 * invZ1) / invZ;
                 float cW2 = (w2 * invZ2) / invZ;
 
-                color.r = static_cast<unsigned char>(cW0 * v0.color.r + cW1 * v1.color.r + cW2 * v2.color.r);
-                color.g = static_cast<unsigned char>(cW0 * v0.color.g + cW1 * v1.color.g + cW2 * v2.color.g);
-                color.b = static_cast<unsigned char>(cW0 * v0.color.b + cW1 * v1.color.b + cW2 * v2.color.b);
+                color.r = static_cast<unsigned char>((cW0 * v0.color.r + cW1 * v1.color.r + cW2 * v2.color.r) * brightness);
+                color.g = static_cast<unsigned char>((cW0 * v0.color.g + cW1 * v1.color.g + cW2 * v2.color.g) * brightness);
+                color.b = static_cast<unsigned char>((cW0 * v0.color.b + cW1 * v1.color.b + cW2 * v2.color.b) * brightness);
 
                 int index = y * width + x;
 
