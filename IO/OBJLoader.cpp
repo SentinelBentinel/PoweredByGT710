@@ -4,9 +4,39 @@
 #include <sstream>
 #include <iostream>
 
+struct OBJIndex
+{
+    int position;
+    int uv;
+    int normal;
+};
+
+auto ParseIndex = [](const std::string& token)
+{
+    OBJIndex idx{};
+
+    sscanf(
+        token.c_str(),
+        "%d/%d/%d",
+        &idx.position,
+        &idx.uv,
+        &idx.normal
+    );
+
+    idx.position--;
+    idx.uv--;
+    idx.normal--;
+
+    return idx;
+};
+
 Mesh OBJLoader::Load(const std::string &path)
 {
     Mesh mesh;
+
+    std::vector<Vector3> positions;
+    std::vector<Vector3> normals;
+    std::vector<Vector2> texcoords;
 
     std::ifstream file(path);
 
@@ -32,38 +62,62 @@ Mesh OBJLoader::Load(const std::string &path)
 
         if (type == "v")
         {
-            float x,y,z;
-            ss >> x >> y >> z;
+            Vector3 pos;
+            ss >> pos.x >> pos.y >> pos.z;
 
-            Vertex vertex;
-            vertex.position = {x,y,z};
-
-            vertex.color = {25,255,144};
-
-            mesh.vertices.push_back(vertex);
+            positions.push_back(pos);
         }
 
         // Face
 
         else if (type == "f")
         {
-            std::string a,b,c;
-            ss >> a >> b >> c;
+            std::vector<std::string> face;
 
-            auto ParseIndex = [](const std::string &token)
+            std::string token;
+
+            while (ss >> token)
+                face.push_back(token);
+
+            if (face.size() < 3)
+                continue;
+
+            auto MakeVertex = [&](const std::string &s)
             {
-                std::stringstream parser(token);
+                OBJIndex i = ParseIndex(s);
 
-                std::string index;
+                Vertex v;
+                v.position = positions[i.position];
+                v.uv = texcoords[i.uv];
+                v.normal = normals[i.normal];
+                v.color = {255,255,255};
 
-                std::getline(parser, index, '/');
-
-                return std::stoi(index) - 1;
+                mesh.indices.push_back(mesh.vertices.size());
+                mesh.vertices.push_back(v);
             };
 
-            mesh.indices.push_back(ParseIndex(a));
-            mesh.indices.push_back(ParseIndex(b));
-            mesh.indices.push_back(ParseIndex(c));
+            for (size_t i = 1; i < face.size() - 1; i++)
+            {
+                MakeVertex(face[0]);
+                MakeVertex(face[i]);
+                MakeVertex(face[i + 1]);
+            }
+        }
+
+        else if (type == "vt")
+        {
+            Vector2 uv;
+            ss >> uv.x >> uv.y;
+
+            texcoords.push_back(uv);
+        }
+
+        else if (type == "vn")
+        {
+            Vector3 normal;
+            ss >> normal.x >> normal.y >> normal.z;
+
+            normals.push_back(normal);
         }
 
         else
@@ -81,29 +135,4 @@ Mesh OBJLoader::Load(const std::string &path)
     std::cout << "Triangles: " << mesh.indices.size() / 3 << '\n';
 
     return mesh;
-}
-
-void ComputeVertexNormals(Mesh &mesh)
-{
-    for (Vertex &v : mesh.vertices)
-        v.normal = {0,0,0};
-
-    for (size_t i = 0; i < mesh.indices.size(); i += 3)
-    {
-        Vertex &v0 = mesh.vertices[mesh.indices[i]];
-        Vertex &v1 = mesh.vertices[mesh.indices[i + 1]];
-        Vertex &v2 = mesh.vertices[mesh.indices[i + 2]];
-
-        Vector3 edge1 = v1.position - v0.position;
-        Vector3 edge2 = v2.position - v0.position;
-
-        Vector3 normal = Vector3::Cross(edge1, edge2).Normalized();
-
-        v0.normal += normal;
-        v1.normal += normal;
-        v2.normal += normal;
-    }
-
-    for (Vertex &v : mesh.vertices)
-        v.normal = v.normal.Normalized();
 }

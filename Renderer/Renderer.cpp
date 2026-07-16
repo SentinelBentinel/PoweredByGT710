@@ -37,8 +37,8 @@ Renderer::Renderer(int w, int h) : width(w), height(h), framebufer(w * h), depth
 
 Renderer::~Renderer()
 {
-    if (texture)
-        SDL_DestroyTexture(texture);
+    if (RenderTexture)
+        SDL_DestroyTexture(RenderTexture);
     if (font)
         TTF_CloseFont(font);
     if (renderer)
@@ -79,18 +79,20 @@ bool Renderer::Initialize()
         return false;
     }
 
-    texture = SDL_CreateTexture(
+    RenderTexture = SDL_CreateTexture(
         renderer,
         SDL_PIXELFORMAT_RGB24,
         SDL_TEXTUREACCESS_STREAMING,
         width,
         height);
 
-    if (!texture)
+    if (!RenderTexture)
     {
         std::cerr << "Texture err: " << SDL_GetError() << '\n';
         return false;
     }
+
+    texture.Load("../assets/goog.png");
 
     light.direction = light.direction.Normalized();
 
@@ -163,13 +165,13 @@ void Renderer::Clear(Color color)
 void Renderer::Present()
 {
     SDL_UpdateTexture(
-        texture,
+        RenderTexture,
         nullptr,
         framebufer.data(),
         width * sizeof(Color));
 
     SDL_RenderClear(renderer);
-    SDL_RenderTexture(renderer, texture, nullptr, nullptr);
+    SDL_RenderTexture(renderer, RenderTexture, nullptr, nullptr);
 
     Stats &s = GetStats();
 
@@ -295,7 +297,7 @@ Camera &Renderer::GetCamera()
     return camera;
 }
 
-Vector2 Renderer::ProjectVertex(const Vector3 &position)
+Vector2 Renderer::ProjectVertex(Vertex &vertex)
 {
     static Matrix4 projection = Matrix4::Perspective(
         fov * (3.1415926535f / 180.0f),
@@ -303,12 +305,14 @@ Vector2 Renderer::ProjectVertex(const Vector3 &position)
         0.1f,
         1000.0f);
 
-    Vector4 clip = projection.MultiplyPoint4(position);
+    Vector4 clip = projection.MultiplyPoint4(vertex.position);
 
     if (clip.w <= 0.0f)
         return {-1000000.0f, -1000000.0f};
 
     float invW = 1.0f / clip.w;
+
+    vertex.invW = invW;
 
     float ndcX = clip.x * invW;
     float ndcY = clip.y * invW;
@@ -331,17 +335,9 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
     Vertex v1 = triangle.v1;
     Vertex v2 = triangle.v2;
 
-    Vector2 p0 = ProjectVertex(v0.position);
-    Vector2 p1 = ProjectVertex(v1.position);
-    Vector2 p2 = ProjectVertex(v2.position);
-
-    float z0 = v0.position.z;
-    float z1 = v1.position.z;
-    float z2 = v2.position.z;
-
-    float invZ0 = 1.0f / z0;
-    float invZ1 = 1.0f / z1;
-    float invZ2 = 1.0f / z2;
+    Vector2 p0 = ProjectVertex(v0);
+    Vector2 p1 = ProjectVertex(v1);
+    Vector2 p2 = ProjectVertex(v2);
 
     float area = EdgeFunc(
         p0,
@@ -373,20 +369,25 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
 
                 float brightness = w0 * v0.brightness + w1 * v1.brightness + w2 * v2.brightness;
 
-                float invZ = w0 * invZ0 + w1 * invZ1 + w2 * invZ2;
+                float interInvW = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
 
-                float depth = 1.0f / invZ;
+                
+                float cW0 = (w0 * v0.invW) / interInvW;
+                float cW1 = (w1 * v1.invW) / interInvW;
+                float cW2 = (w2 * v2.invW) / interInvW;
+                
+                float depth = 1.0f / interInvW;
 
-                Color color;
+                Vector2 uv = v0.uv * cW0 + v1.uv * cW1 + v2.uv * cW2;
+                Vector3 normal = (v0.normal * cW0 + v1.normal * cW1 + v2.normal * cW2).Normalized();
 
-                float cW0 = (w0 * invZ0) / invZ;
-                float cW1 = (w1 * invZ1) / invZ;
-                float cW2 = (w2 * invZ2) / invZ;
+                Color color = texture.Sample(uv);
 
-                color.r = static_cast<unsigned char>((cW0 * v0.color.r + cW1 * v1.color.r + cW2 * v2.color.r) * brightness);
-                color.g = static_cast<unsigned char>((cW0 * v0.color.g + cW1 * v1.color.g + cW2 * v2.color.g) * brightness);
-                color.b = static_cast<unsigned char>((cW0 * v0.color.b + cW1 * v1.color.b + cW2 * v2.color.b) * brightness);
-
+                color.r = static_cast<uint8_t>(color.r * brightness);
+                color.g = static_cast<uint8_t>(color.g * brightness);
+                color.b = static_cast<uint8_t>(color.b * brightness);
+                
+                
                 int index = y * width + x;
 
                 if (depth < depthBuffer[index])
@@ -452,17 +453,23 @@ void Renderer::RenderMesh(const Mesh &mesh)
         Plane bottomPlane = NormalizePlane({{0.0f, 1.0f, 1.0f},
                                             0.0f});
         ClipStage(nearPlane);
-        if (input.empty()) continue;
+        if (input.empty())
+            continue;
         ClipStage(farPlane);
-        if (input.empty()) continue;
+        if (input.empty())
+            continue;
         ClipStage(leftPlane);
-        if (input.empty()) continue;
+        if (input.empty())
+            continue;
         ClipStage(rightPlane);
-        if (input.empty()) continue;
+        if (input.empty())
+            continue;
         ClipStage(topPlane);
-        if (input.empty()) continue;
+        if (input.empty())
+            continue;
         ClipStage(bottomPlane);
-        if (input.empty()) continue;
+        if (input.empty())
+            continue;
 
         for (const Triangle &clippedTriangle : input)
         {
@@ -470,9 +477,9 @@ void Renderer::RenderMesh(const Mesh &mesh)
             Vertex v1 = clippedTriangle.v1;
             Vertex v2 = clippedTriangle.v2;
 
-            Vector2 p0 = ProjectVertex(v0.position);
-            Vector2 p1 = ProjectVertex(v1.position);
-            Vector2 p2 = ProjectVertex(v2.position);
+            Vector2 p0 = ProjectVertex(v0);
+            Vector2 p1 = ProjectVertex(v1);
+            Vector2 p2 = ProjectVertex(v2);
 
             if (IsBackFace(p0, p1, p2))
             {
@@ -486,9 +493,9 @@ void Renderer::RenderMesh(const Mesh &mesh)
             }
             else
             {
-                Vector2 p0 = ProjectVertex(v0.position);
-                Vector2 p1 = ProjectVertex(v1.position);
-                Vector2 p2 = ProjectVertex(v2.position);
+                Vector2 p0 = ProjectVertex(v0);
+                Vector2 p1 = ProjectVertex(v1);
+                Vector2 p2 = ProjectVertex(v2);
 
                 DrawLine(p0, p1, v0.color);
                 DrawLine(p1, p2, v1.color);
@@ -526,11 +533,10 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
     result.normal = viewNormal;
 
     Vector3 lightDir =
-    {
-        -light.direction.x,
-        -light.direction.y,
-        -light.direction.z
-    };
+        {
+            -light.direction.x,
+            -light.direction.y,
+            -light.direction.z};
 
     result.brightness = std::max(light.ambient, Vector3::Dot(viewNormal, lightDir));
 
@@ -561,7 +567,7 @@ void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingA
 
             if (distNext < 0.0f)
             {
-                clippedPolygon.push_back(IntersectPlane(current,next,plane));
+                clippedPolygon.push_back(IntersectPlane(current, next, plane));
             }
         }
 
@@ -571,7 +577,8 @@ void Renderer::PerformHomogenousCoordinateSpaceSutherlandHodgmanPolygonClippingA
         }
     }
 
-    if (clippedPolygon.size() < 3) return;
+    if (clippedPolygon.size() < 3)
+        return;
 
     for (size_t i = 1; i < clippedPolygon.size() - 1; i++)
     {

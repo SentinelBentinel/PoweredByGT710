@@ -41,10 +41,15 @@ int main()
     renderer.SetRenderMode(RenderMode::Filled);
     renderer.GetCamera().position.z = -200;
 
-    Mesh teapotLQ = OBJLoader::Load("../assets/teaofpotsLOW.obj");
-    ComputeVertexNormals(teapotLQ);
+    // Mesh teapotLQ = OBJLoader::Load("../assets/teaofpotsLOW.obj");
+    // teapotLQ.transform.position = {10,0,0};
+    // Mesh Crate = OBJLoader::Load("../assets/Crate.obj");
 
-    meshes.push_back(teapotLQ);
+    // meshes.push_back(teapotLQ);
+    // meshes.push_back(Crate);
+
+    Mesh cube = OBJLoader::Load("../assets/Cubus.obj");
+    meshes.push_back(cube);
 
     while (renderer.ProcessEvents())
     {
