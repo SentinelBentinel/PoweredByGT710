@@ -5,7 +5,11 @@
 #include <format>
 #include <limits>
 #include <cmath>
+#include <thread>
 #include <SDL3_ttf/SDL_ttf.h>
+#if defined(__SSE__) || defined(__AVX__)
+#include <immintrin.h>
+#endif
 /*
     Poop
 */
@@ -92,9 +96,10 @@ bool Renderer::Initialize()
         return false;
     }
 
-    texture.Load("../assets/goog.png");
-
     light.direction = light.direction.Normalized();
+
+    stats.hardwareThreads = static_cast<int>(std::thread::hardware_concurrency());
+    stats.logicalCores = stats.hardwareThreads > 0 ? stats.hardwareThreads : 1;
 
     SDL_SetWindowRelativeMouseMode(window, true);
 
@@ -159,7 +164,9 @@ void Renderer::Clear(Color color)
     stats.triangles = 0;
     stats.trianglesCulled = 0;
     stats.meshes = 0;
-    stats.pixelsDrawn = 0;
+    stats.pixelsDrawn.store(0);
+    stats.activeThreads = 1;
+    visibleTriangles.clear();
 }
 
 void Renderer::Present()
@@ -196,11 +203,15 @@ void Renderer::Present()
              {255, 255, 255});
 
     DrawText(10, 130,
-             std::format("Pixels: {}", s.pixelsDrawn),
+             std::format("Pixels: {}", static_cast<int>(s.pixelsDrawn.load())),
              {255, 255, 255});
 
     DrawText(10, 150,
              std::format("Culled: {}", s.trianglesCulled),
+             {255, 255, 255});
+
+    DrawText(10, 170,
+             std::format("Threads: {}/{}", s.activeThreads, s.logicalCores),
              {255, 255, 255});
 
     SDL_RenderPresent(renderer);
@@ -214,6 +225,21 @@ std::vector<Color> &Renderer::GetFramebuffer()
 void Renderer::SetRenderMode(RenderMode mode)
 {
     renderMode = mode;
+}
+
+void Renderer::SetUseMultithreading(bool enabled)
+{
+    useMultithreading = enabled;
+}
+
+void Renderer::SetUseTiles(bool enabled)
+{
+    useTiles = enabled;
+}
+
+void Renderer::SetUseSIMD(bool enabled)
+{
+    useSIMD = enabled;
 }
 
 Vector3 Renderer::ComputeFaceNormal(const Vertex &v0, const Vertex &v1, const Vertex &v2)
@@ -313,6 +339,7 @@ Vector2 Renderer::ProjectVertex(Vertex &vertex)
     float invW = 1.0f / clip.w;
 
     vertex.invW = invW;
+    vertex.depth = clip.z * vertex.invW;
 
     float ndcX = clip.x * invW;
     float ndcY = clip.y * invW;
@@ -329,7 +356,12 @@ bool Renderer::IsBackFace(const Vector2 &v0, const Vector2 &v1, const Vector2 &v
     return area <= 0.0f;
 }
 
-void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
+void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle, const Mesh &mesh)
+{
+    RasterizeTriangleViewSpace(triangle, mesh, 0, width - 1, 0, height - 1, true, -1);
+}
+
+int Renderer::RasterizeTriangleViewSpace(const Triangle &triangle, const Mesh &mesh, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, bool useLock, int materialIndex)
 {
     Vertex v0 = triangle.v0;
     Vertex v1 = triangle.v1;
@@ -339,73 +371,240 @@ void Renderer::RasterizeTriangleViewSpace(const Triangle &triangle)
     Vector2 p1 = ProjectVertex(v1);
     Vector2 p2 = ProjectVertex(v2);
 
-    float area = EdgeFunc(
-        p0,
-        p1,
-        p2);
+    float area = EdgeFunc(p0, p1, p2);
 
     if (std::abs(area) < 0.0001f)
-        return;
+        return 0;
 
-    int minX = std::max(0, static_cast<int>(std::floor(std::min({p0.x, p1.x, p2.x}))));
-    int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({p0.x, p1.x, p2.x}))));
-    int minY = std::max(0, static_cast<int>(std::floor(std::min({p0.y, p1.y, p2.y}))));
-    int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({p0.y, p1.y, p2.y}))));
+    const int minX = std::max(0, static_cast<int>(std::floor(std::min({p0.x, p1.x, p2.x}))));
+    const int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({p0.x, p1.x, p2.x}))));
+    const int minY = std::max(0, static_cast<int>(std::floor(std::min({p0.y, p1.y, p2.y}))));
+    const int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({p0.y, p1.y, p2.y}))));
 
-    for (int y = minY; y <= maxY; ++y)
+    const int startX = std::max(minX, tileMinX);
+    const int endX = std::min(maxX, tileMaxX);
+    const int startY = std::max(minY, tileMinY);
+    const int endY = std::min(maxY, tileMaxY);
+
+    if (startX > endX || startY > endY)
+        return 0;
+
+    int pixelsWritten = 0;
+
+    auto rasterizePixel = [&](int x, int y)
     {
-        for (int x = minX; x <= maxX; ++x)
+        Vector2 p = {static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f};
+        float w0 = EdgeFunc(p1, p2, p);
+        float w1 = EdgeFunc(p2, p0, p);
+        float w2 = EdgeFunc(p0, p1, p);
+
+        if ((area >= 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0))
         {
-            Vector2 p = {static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f};
-            float w0 = EdgeFunc(p1, p2, p);
-            float w1 = EdgeFunc(p2, p0, p);
-            float w2 = EdgeFunc(p0, p1, p);
+            w0 /= area;
+            w1 /= area;
+            w2 /= area;
 
-            if ((area >= 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0))
+            const float interInvW = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
+            const float cW0 = (w0 * v0.invW) / interInvW;
+            const float cW1 = (w1 * v1.invW) / interInvW;
+            const float cW2 = (w2 * v2.invW) / interInvW;
+            const float depth = cW0 * v0.depth + cW1 * v1.depth + cW2 * v2.depth;
+
+            const Vector2 uv = (v0.uv * (w0 * v0.invW) + v1.uv * (w1 * v1.invW) + v2.uv * (w2 * v2.invW)) / interInvW;
+            const Vector3 normal = (v0.normal * (w0 * v0.invW) + v1.normal * (w1 * v1.invW) + v2.normal * (w2 * v2.invW)) / interInvW;
+            const Vector3 worldPos = (v0.worldPosition * (w0 * v0.invW) + v1.worldPosition * (w1 * v1.invW) + v2.worldPosition * (w2 * v2.invW)) / interInvW;
+            const Vector3 viewDir = (camera.position - worldPos).Normalized();
+            const Vector3 lightDir = (-light.direction).Normalized();
+
+            const Material *material = nullptr;
+            if (materialIndex >= 0 && materialIndex < static_cast<int>(mesh.materials.size()))
+                material = &mesh.materials[materialIndex];
+
+            Color baseColor = {255,255,255};
+            if (material && material->hasDiffuseMap)
+                baseColor = material->diffuseMap.Sample(uv);
+            else if (mesh.hasTexture)
+                baseColor = mesh.texture.Sample(uv);
+            else if (material)
+                baseColor = material->diffuse;
+
+            float ambient = material ? material->ambient.r / 255.0f : 0.1f;
+            float specularStrength = material ? material->specular.r / 255.0f : 0.5f;
+            float shininess = material ? material->shininess : 32.0f;
+
+            const float diffuse = std::max(0.0f, Vector3::Dot(normal.Normalized(), lightDir));
+            const Vector3 reflectDir = (normal.Normalized() * (2.0f * Vector3::Dot(normal.Normalized(), lightDir)) - lightDir).Normalized();
+            const float specular = std::pow(std::max(0.0f, Vector3::Dot(viewDir, reflectDir)), shininess);
+
+            float brightness = ambient + diffuse + specularStrength * specular;
+            brightness = std::clamp(brightness, 0.0f, 1.0f);
+
+            Color color = {
+                static_cast<unsigned char>(baseColor.r * brightness),
+                static_cast<unsigned char>(baseColor.g * brightness),
+                static_cast<unsigned char>(baseColor.b * brightness)
+            };
+
+            if (useLock)
             {
-                w0 /= area;
-                w1 /= area;
-                w2 /= area;
+                WriteFragment(x, y, depth, color);
+            }
+            else
+            {
+                WriteFragmentUnlocked(x, y, depth, color);
+                ++pixelsWritten;
+            }
+        }
+    };
 
-                float brightness = w0 * v0.brightness + w1 * v1.brightness + w2 * v2.brightness;
+    if (useTiles)
+    {
+        const int minTileX = std::max(0, startX / TileSize);
+        const int maxTileX = std::min((width + TileSize - 1) / TileSize - 1, endX / TileSize);
+        const int minTileY = std::max(0, startY / TileSize);
+        const int maxTileY = std::min((height + TileSize - 1) / TileSize - 1, endY / TileSize);
 
-                float interInvW = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
+        for (int tileY = minTileY; tileY <= maxTileY; ++tileY)
+        {
+            for (int tileX = minTileX; tileX <= maxTileX; ++tileX)
+            {
+                const int tileMinXInner = tileX * TileSize;
+                const int tileMaxXInner = std::min(width - 1, tileMinXInner + TileSize - 1);
+                const int tileMinYInner = tileY * TileSize;
+                const int tileMaxYInner = std::min(height - 1, tileMinYInner + TileSize - 1);
 
-                
-                float cW0 = (w0 * v0.invW) / interInvW;
-                float cW1 = (w1 * v1.invW) / interInvW;
-                float cW2 = (w2 * v2.invW) / interInvW;
-                
-                float depth = 1.0f / interInvW;
+                const int scanX0 = std::max(startX, tileMinXInner);
+                const int scanX1 = std::min(endX, tileMaxXInner);
+                const int scanY0 = std::max(startY, tileMinYInner);
+                const int scanY1 = std::min(endY, tileMaxYInner);
 
-                Vector2 uv = v0.uv * cW0 + v1.uv * cW1 + v2.uv * cW2;
-                Vector3 normal = (v0.normal * cW0 + v1.normal * cW1 + v2.normal * cW2).Normalized();
-
-                Color color = texture.Sample(uv);
-
-                color.r = static_cast<uint8_t>(color.r * brightness);
-                color.g = static_cast<uint8_t>(color.g * brightness);
-                color.b = static_cast<uint8_t>(color.b * brightness);
-                
-                
-                int index = y * width + x;
-
-                if (depth < depthBuffer[index])
+                for (int y = scanY0; y <= scanY1; ++y)
                 {
-                    depthBuffer[index] = depth;
+                    if (useSIMD)
+                    {
+#if defined(__AVX__)
+                        int x = scanX0;
+                        while (x + 7 <= scanX1)
+                        {
+                            __m256 px = _mm256_set_ps(static_cast<float>(x + 7), static_cast<float>(x + 6), static_cast<float>(x + 5), static_cast<float>(x + 4), static_cast<float>(x + 3), static_cast<float>(x + 2), static_cast<float>(x + 1), static_cast<float>(x));
+                            __m256 py = _mm256_set1_ps(static_cast<float>(y) + 0.5f);
+                            __m256 p1x = _mm256_set1_ps(p1.x);
+                            __m256 p1y = _mm256_set1_ps(p1.y);
+                            __m256 p2x = _mm256_set1_ps(p2.x);
+                            __m256 p2y = _mm256_set1_ps(p2.y);
+                            __m256 p0x = _mm256_set1_ps(p0.x);
+                            __m256 p0y = _mm256_set1_ps(p0.y);
 
-                    framebufer[index] = color;
+                            __m256 w0v = _mm256_sub_ps(_mm256_mul_ps(_mm256_sub_ps(py, p1y), _mm256_sub_ps(p2x, p1x)), _mm256_mul_ps(_mm256_sub_ps(px, p1x), _mm256_sub_ps(p2y, p1y)));
+                            __m256 w1v = _mm256_sub_ps(_mm256_mul_ps(_mm256_sub_ps(py, p2y), _mm256_sub_ps(p0x, p2x)), _mm256_mul_ps(_mm256_sub_ps(px, p2x), _mm256_sub_ps(p0y, p2y)));
+                            __m256 w2v = _mm256_sub_ps(_mm256_mul_ps(_mm256_sub_ps(py, p0y), _mm256_sub_ps(p1x, p0x)), _mm256_mul_ps(_mm256_sub_ps(px, p0x), _mm256_sub_ps(p1y, p0y)));
 
-                    stats.pixelsDrawn++;
+                            float laneValues[8];
+                            _mm256_storeu_ps(laneValues, w0v);
+                            float laneValues1[8];
+                            _mm256_storeu_ps(laneValues1, w1v);
+                            float laneValues2[8];
+                            _mm256_storeu_ps(laneValues2, w2v);
+
+                            for (int lane = 0; lane < 8; ++lane)
+                            {
+                                const float w0 = laneValues[lane];
+                                const float w1 = laneValues1[lane];
+                                const float w2 = laneValues2[lane];
+                                const int pixelX = x + lane;
+                                const bool inside = (area >= 0.0f && w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f) ||
+                                                    (area < 0.0f && w0 <= 0.0f && w1 <= 0.0f && w2 <= 0.0f);
+
+                                if (!inside)
+                                    continue;
+
+                                rasterizePixel(pixelX, y);
+                            }
+
+                            x += 8;
+                        }
+#elif defined(__SSE__)
+                        int x = scanX0;
+                        while (x + 3 <= scanX1)
+                        {
+                            float x0 = static_cast<float>(x);
+                            float x1 = static_cast<float>(x + 1);
+                            float x2 = static_cast<float>(x + 2);
+                            float x3 = static_cast<float>(x + 3);
+                            float yv = static_cast<float>(y) + 0.5f;
+
+                            __m128 px = _mm_set_ps(x3, x2, x1, x0);
+                            __m128 py = _mm_set1_ps(yv);
+                            __m128 p1x = _mm_set1_ps(p1.x);
+                            __m128 p1y = _mm_set1_ps(p1.y);
+                            __m128 p2x = _mm_set1_ps(p2.x);
+                            __m128 p2y = _mm_set1_ps(p2.y);
+                            __m128 p0x = _mm_set1_ps(p0.x);
+                            __m128 p0y = _mm_set1_ps(p0.y);
+
+                            __m128 w0v = _mm_sub_ps(_mm_mul_ps(_mm_sub_ps(py, p1y), _mm_sub_ps(p2x, p1x)), _mm_mul_ps(_mm_sub_ps(px, p1x), _mm_sub_ps(p2y, p1y)));
+                            __m128 w1v = _mm_sub_ps(_mm_mul_ps(_mm_sub_ps(py, p2y), _mm_sub_ps(p0x, p2x)), _mm_mul_ps(_mm_sub_ps(px, p2x), _mm_sub_ps(p0y, p2y)));
+                            __m128 w2v = _mm_sub_ps(_mm_mul_ps(_mm_sub_ps(py, p0y), _mm_sub_ps(p1x, p0x)), _mm_mul_ps(_mm_sub_ps(px, p0x), _mm_sub_ps(p1y, p0y)));
+
+                            float laneValues[4];
+                            _mm_storeu_ps(laneValues, w0v);
+                            float laneValues1[4];
+                            _mm_storeu_ps(laneValues1, w1v);
+                            float laneValues2[4];
+                            _mm_storeu_ps(laneValues2, w2v);
+
+                            for (int lane = 0; lane < 4; ++lane)
+                            {
+                                const float w0 = laneValues[lane];
+                                const float w1 = laneValues1[lane];
+                                const float w2 = laneValues2[lane];
+                                const int pixelX = x + lane;
+                                const bool inside = (area >= 0.0f && w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f) ||
+                                                    (area < 0.0f && w0 <= 0.0f && w1 <= 0.0f && w2 <= 0.0f);
+
+                                if (!inside)
+                                    continue;
+
+                                rasterizePixel(pixelX, y);
+                            }
+
+                            x += 4;
+                        }
+#endif
+                    }
+
+                    for (int x = scanX0; x <= scanX1; ++x)
+                    {
+                        rasterizePixel(x, y);
+                    }
                 }
             }
         }
     }
+    else
+    {
+        for (int y = startY; y <= endY; ++y)
+        {
+            for (int x = startX; x <= endX; ++x)
+            {
+                rasterizePixel(x, y);
+            }
+        }
+    }
+
+    return pixelsWritten;
 }
 
 void Renderer::RenderMesh(const Mesh &mesh)
 {
     stats.meshes++;
+    GeometryStage(mesh);
+}
+
+void Renderer::GeometryStage(const Mesh &mesh)
+{
+    visibleTriangles.reserve(visibleTriangles.size() + mesh.indices.size() / 3);
+
     for (size_t i = 0; i < mesh.indices.size(); i += 3)
     {
         stats.triangles++;
@@ -434,8 +633,6 @@ void Renderer::RenderMesh(const Mesh &mesh)
             if (input.empty())
                 return;
         };
-
-        std::vector<Triangle> clipped;
 
         Plane nearPlane = NormalizePlane({{0.0f, 0.0f, 1.0f},
                                           -0.1f});
@@ -487,21 +684,157 @@ void Renderer::RenderMesh(const Mesh &mesh)
                 continue;
             }
 
-            if (renderMode == RenderMode::Filled)
-            {
-                RasterizeTriangleViewSpace(clippedTriangle);
-            }
-            else
-            {
-                Vector2 p0 = ProjectVertex(v0);
-                Vector2 p1 = ProjectVertex(v1);
-                Vector2 p2 = ProjectVertex(v2);
+            int triangleMaterialIndex = static_cast<int>(i / 3);
+            int materialIndex = -1;
+            if (triangleMaterialIndex < static_cast<int>(mesh.materialIndices.size()))
+                materialIndex = mesh.materialIndices[triangleMaterialIndex];
 
-                DrawLine(p0, p1, v0.color);
-                DrawLine(p1, p2, v1.color);
-                DrawLine(p2, p0, v2.color);
+            visibleTriangles.push_back({clippedTriangle, &mesh, materialIndex});
+        }
+    }
+}
+
+void Renderer::RasterizeVisibleTriangles()
+{
+    if (renderMode != RenderMode::Filled)
+    {
+        for (VisibleTriangle &visibleTriangle : visibleTriangles)
+        {
+            Vertex v0 = visibleTriangle.triangle.v0;
+            Vertex v1 = visibleTriangle.triangle.v1;
+            Vertex v2 = visibleTriangle.triangle.v2;
+
+            Vector2 p0 = ProjectVertex(v0);
+            Vector2 p1 = ProjectVertex(v1);
+            Vector2 p2 = ProjectVertex(v2);
+
+            DrawLine(p0, p1, v0.color);
+            DrawLine(p1, p2, v1.color);
+            DrawLine(p2, p0, v2.color);
+        }
+
+        visibleTriangles.clear();
+        return;
+    }
+
+    if (visibleTriangles.empty())
+    {
+        return;
+    }
+
+    const unsigned int threadCount = std::max(1u, std::min(8u, std::thread::hardware_concurrency()));
+    const size_t triangleCount = visibleTriangles.size();
+    stats.activeThreads = 1;
+
+    if (!useMultithreading || threadCount <= 1 || triangleCount < 2 || !useTiles)
+    {
+        for (VisibleTriangle &visibleTriangle : visibleTriangles)
+        {
+            RasterizeTriangleViewSpace(visibleTriangle.triangle, *visibleTriangle.mesh);
+        }
+
+        visibleTriangles.clear();
+        return;
+    }
+
+    const int tilesX = (width + TileSize - 1) / TileSize;
+    const int tilesY = (height + TileSize - 1) / TileSize;
+    const int totalTiles = tilesX * tilesY;
+    const int workerCount = std::min<int>(static_cast<int>(threadCount), totalTiles);
+    const int tilesPerThread = std::max(1, totalTiles / workerCount);
+
+    std::vector<std::vector<size_t>> tileTriangles(totalTiles);
+    for (size_t triangleIndex = 0; triangleIndex < triangleCount; ++triangleIndex)
+    {
+        const VisibleTriangle &visibleTriangle = visibleTriangles[triangleIndex];
+        const Triangle &triangle = visibleTriangle.triangle;
+
+        Vertex v0 = triangle.v0;
+        Vertex v1 = triangle.v1;
+        Vertex v2 = triangle.v2;
+
+        Vector2 p0 = ProjectVertex(v0);
+        Vector2 p1 = ProjectVertex(v1);
+        Vector2 p2 = ProjectVertex(v2);
+
+        const int minX = std::max(0, static_cast<int>(std::floor(std::min({p0.x, p1.x, p2.x}))));
+        const int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({p0.x, p1.x, p2.x}))));
+        const int minY = std::max(0, static_cast<int>(std::floor(std::min({p0.y, p1.y, p2.y}))));
+        const int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({p0.y, p1.y, p2.y}))));
+
+        const int minTileX = std::max(0, minX / TileSize);
+        const int maxTileX = std::min(tilesX - 1, maxX / TileSize);
+        const int minTileY = std::max(0, minY / TileSize);
+        const int maxTileY = std::min(tilesY - 1, maxY / TileSize);
+
+        for (int tileY = minTileY; tileY <= maxTileY; ++tileY)
+        {
+            for (int tileX = minTileX; tileX <= maxTileX; ++tileX)
+            {
+                tileTriangles[tileY * tilesX + tileX].push_back(triangleIndex);
             }
         }
+    }
+
+    std::vector<std::thread> workers;
+    workers.reserve(workerCount);
+    stats.activeThreads = workerCount;
+
+    int tileBegin = 0;
+    while (tileBegin < totalTiles)
+    {
+        const int tileEnd = std::min(tileBegin + tilesPerThread, totalTiles);
+        workers.emplace_back([this, tileBegin, tileEnd, tilesX, tilesY, &tileTriangles]()
+                             {
+                                 for (int tileIndex = tileBegin; tileIndex < tileEnd; ++tileIndex)
+                                 {
+                                     const int tileX = tileIndex % tilesX;
+                                     const int tileY = tileIndex / tilesX;
+                                     const int tileMinX = tileX * TileSize;
+                                     const int tileMaxX = std::min(width - 1, tileMinX + TileSize - 1);
+                                     const int tileMinY = tileY * TileSize;
+                                     const int tileMaxY = std::min(height - 1, tileMinY + TileSize - 1);
+                                     const auto &trianglesInTile = tileTriangles[tileIndex];
+
+                                     for (size_t triangleIndex : trianglesInTile)
+                                     {
+                                         const VisibleTriangle &visibleTriangle = visibleTriangles[triangleIndex];
+                                         RasterizeTriangleViewSpace(visibleTriangle.triangle, *visibleTriangle.mesh, tileMinX, tileMaxX, tileMinY, tileMaxY, false);
+                                     }
+                                 }
+                             });
+        tileBegin = tileEnd;
+    }
+
+    for (std::thread &worker : workers)
+    {
+        worker.join();
+    }
+
+    visibleTriangles.clear();
+}
+
+void Renderer::WriteFragment(int x, int y, float depth, const Color &color)
+{
+    std::lock_guard<std::mutex> lock(pixelMutex);
+
+    const int index = y * width + x;
+    if (depth < depthBuffer[index])
+    {
+        depthBuffer[index] = depth;
+        framebufer[index] = color;
+        stats.pixelsDrawn++;
+    }
+}
+
+void Renderer::WriteFragmentUnlocked(int x, int y, float depth, const Color &color)
+{
+    const int index = y * width + x;
+    if (depth < depthBuffer[index])
+    {
+        depthBuffer[index] = depth;
+        framebufer[index] = color;
+        stats.pixelsDrawn++;
     }
 }
 
@@ -527,18 +860,9 @@ Vertex Renderer::TransformVertex(const Vertex &vertex, const Transform &transfor
 
     Vector3 worldNormal = model.MultiplyVector(vertex.normal).Normalized();
 
-    Vector3 viewNormal = camera.GetViewMatrix().MultiplyVector(worldNormal).Normalized();
-
     result.position = view;
-    result.normal = viewNormal;
-
-    Vector3 lightDir =
-        {
-            -light.direction.x,
-            -light.direction.y,
-            -light.direction.z};
-
-    result.brightness = std::max(light.ambient, Vector3::Dot(viewNormal, lightDir));
+    result.normal = worldNormal;
+    result.worldPosition = world;
 
     return result;
 }
